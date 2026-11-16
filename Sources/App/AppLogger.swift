@@ -133,7 +133,7 @@ enum CrashCatcher {
 private func crashSignalHandler(_ sig: Int32) {
     // Async-signal-safe write directly to logs.txt via POSIX open/write/close
     if let pathPtr = CrashCatcherSignalPath.pathCString {
-        let fd = open(pathPtr, O_WRONLY | O_CREAT | O_APPEND, 0o644)
+        let fd = open(pathPtr, O_WRONLY | O_CREAT | O_APPEND, mode_t(0o644))
         if fd >= 0 {
             let prefix = "\n[CRASH] Fatal POSIX signal: "
             _ = prefix.withCString { ptr in
@@ -164,7 +164,7 @@ private func crashSignalHandler(_ sig: Int32) {
             close(fd)
         }
     }
-    signal(sig, SIG_DFL)
+    signal(sig, nil)
     raise(sig)
 }
 

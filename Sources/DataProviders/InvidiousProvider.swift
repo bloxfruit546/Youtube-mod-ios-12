@@ -51,7 +51,7 @@ final class InvidiousProvider: YouTubeDataSourceProtocol {
         requestAcrossInstances(pathAndQuery: "/api/v1/trending?region=\(reg)") { [weak self] result in
             guard let self = self else { return }
             switch result {
-            case .success(let (_, json)):
+            case .success((_, let json)):
                 guard let array = json as? [[String: Any]] else {
                     completion(.failure(DataProviderError.decodingError("Invidious trending không hợp lệ")))
                     return
@@ -69,7 +69,7 @@ final class InvidiousProvider: YouTubeDataSourceProtocol {
         requestAcrossInstances(pathAndQuery: "/api/v1/search?q=\(q)&type=video") { [weak self] result in
             guard let self = self else { return }
             switch result {
-            case .success(let (_, json)):
+            case .success((_, let json)):
                 guard let array = json as? [[String: Any]] else {
                     completion(.failure(DataProviderError.decodingError("Invidious search không hợp lệ")))
                     return
@@ -86,7 +86,7 @@ final class InvidiousProvider: YouTubeDataSourceProtocol {
         let q = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         requestAcrossInstances(pathAndQuery: "/api/v1/search/suggestions?q=\(q)") { result in
             switch result {
-            case .success(let (_, json)):
+            case .success((_, let json)):
                 if let dict = json as? [String: Any], let suggestions = dict["suggestions"] as? [String] {
                     completion(.success(suggestions))
                 } else {
@@ -103,7 +103,7 @@ final class InvidiousProvider: YouTubeDataSourceProtocol {
         requestAcrossInstances(pathAndQuery: "/api/v1/videos/\(safeId)") { [weak self] result in
             guard let self = self else { return }
             switch result {
-            case .success(let (base, json)):
+            case .success((let base, let json)):
                 guard let dict = json as? [String: Any] else {
                     completion(.failure(DataProviderError.decodingError("Invidious video JSON sai")))
                     return
@@ -215,7 +215,7 @@ final class InvidiousProvider: YouTubeDataSourceProtocol {
         let safeId = videoId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? videoId
         requestAcrossInstances(pathAndQuery: "/api/v1/comments/\(safeId)") { result in
             switch result {
-            case .success(let (_, json)):
+            case .success((_, let json)):
                 guard let dict = json as? [String: Any],
                       let list = dict["comments"] as? [[String: Any]] else {
                     completion(.success([]))
@@ -258,7 +258,7 @@ final class InvidiousProvider: YouTubeDataSourceProtocol {
         requestAcrossInstances(pathAndQuery: "/api/v1/channels/\(safeId)") { [weak self] result in
             guard let self = self else { return }
             switch result {
-            case .success(let (_, json)):
+            case .success((_, let json)):
                 guard let dict = json as? [String: Any] else {
                     completion(.failure(DataProviderError.decodingError("Invidious channel sai")))
                     return

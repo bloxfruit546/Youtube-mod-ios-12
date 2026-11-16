@@ -54,7 +54,7 @@ final class PipedProvider: YouTubeDataSourceProtocol {
         let reg = region.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "VN"
         requestAcrossInstances(pathAndQuery: "/trending?region=\(reg)") { result in
             switch result {
-            case .success(let (_, json)):
+            case .success((_, let json)):
                 guard let array = json as? [[String: Any]] else {
                     completion(.failure(DataProviderError.decodingError("Piped trending không phải mảng JSON")))
                     return
@@ -71,7 +71,7 @@ final class PipedProvider: YouTubeDataSourceProtocol {
         let q = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         requestAcrossInstances(pathAndQuery: "/search?q=\(q)&filter=videos") { result in
             switch result {
-            case .success(let (_, json)):
+            case .success((_, let json)):
                 guard let dict = json as? [String: Any],
                       let items = dict["items"] as? [[String: Any]] else {
                     completion(.failure(DataProviderError.decodingError("Piped search thiếu items")))
@@ -89,7 +89,7 @@ final class PipedProvider: YouTubeDataSourceProtocol {
         let q = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         requestAcrossInstances(pathAndQuery: "/suggestions?query=\(q)") { result in
             switch result {
-            case .success(let (_, json)):
+            case .success((_, let json)):
                 if let list = json as? [String] {
                     completion(.success(list))
                 } else {
@@ -106,7 +106,7 @@ final class PipedProvider: YouTubeDataSourceProtocol {
         requestAcrossInstances(pathAndQuery: "/streams/\(safeId)") { [weak self] result in
             guard let self = self else { return }
             switch result {
-            case .success(let (base, json)):
+            case .success((let base, let json)):
                 guard let dict = json as? [String: Any] else {
                     completion(.failure(DataProviderError.decodingError("Piped stream không hợp lệ")))
                     return
@@ -230,7 +230,7 @@ final class PipedProvider: YouTubeDataSourceProtocol {
         let safeId = videoId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? videoId
         requestAcrossInstances(pathAndQuery: "/comments/\(safeId)") { result in
             switch result {
-            case .success(let (_, json)):
+            case .success((_, let json)):
                 guard let dict = json as? [String: Any],
                       let list = dict["comments"] as? [[String: Any]] else {
                     completion(.success([]))
@@ -270,7 +270,7 @@ final class PipedProvider: YouTubeDataSourceProtocol {
         requestAcrossInstances(pathAndQuery: "/channel/\(safeId)") { [weak self] result in
             guard let self = self else { return }
             switch result {
-            case .success(let (_, json)):
+            case .success((_, let json)):
                 guard let dict = json as? [String: Any] else {
                     completion(.failure(DataProviderError.decodingError("Piped channel không hợp lệ")))
                     return
