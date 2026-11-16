@@ -9,7 +9,7 @@ enum PlayerPresentationState {
 final class RootContainerViewController: UIViewController {
     static weak var shared: RootContainerViewController?
 
-    let tabBarController = UITabBarController()
+    let mainTabBarController = UITabBarController()
     private let watchVC = WatchViewController()
     private let miniPlayerView = MiniPlayerView()
 
@@ -59,11 +59,11 @@ final class RootContainerViewController: UIViewController {
         let libNav = UINavigationController(rootViewController: libVC)
         libNav.tabBarItem = UITabBarItem(title: "Thư viện", image: VectorIcons.library(), tag: 2)
 
-        tabBarController.viewControllers = [homeNav, subsNav, libNav]
-        addChild(tabBarController)
-        tabBarController.view.frame = view.bounds
-        view.addSubview(tabBarController.view)
-        tabBarController.didMove(toParent: self)
+        mainTabBarController.viewControllers = [homeNav, subsNav, libNav]
+        addChild(mainTabBarController)
+        mainTabBarController.view.frame = view.bounds
+        view.addSubview(mainTabBarController.view)
+        mainTabBarController.didMove(toParent: self)
     }
 
     private func setupWatchAndMiniPlayer() {
@@ -77,7 +77,7 @@ final class RootContainerViewController: UIViewController {
             self?.setPresentationState(.mini, animated: true)
         }
         watchVC.onFullscreenChanged = { [weak self] isFull in
-            self?.tabBarController.tabBar.isHidden = isFull
+            self?.mainTabBarController.tabBar.isHidden = isFull
             self?.setNeedsStatusBarAppearanceUpdate()
         }
         watchVC.onOpenChannel = { [weak self] channelId, name in
@@ -111,12 +111,12 @@ final class RootContainerViewController: UIViewController {
         let p = ThemeManager.shared.palette
         view.backgroundColor = p.background
 
-        tabBarController.tabBar.barTintColor = p.elevatedBackground
-        tabBarController.tabBar.tintColor = p.accent
-        tabBarController.tabBar.unselectedItemTintColor = p.secondaryText
-        tabBarController.tabBar.isTranslucent = false
+        mainTabBarController.tabBar.barTintColor = p.elevatedBackground
+        mainTabBarController.tabBar.tintColor = p.accent
+        mainTabBarController.tabBar.unselectedItemTintColor = p.secondaryText
+        mainTabBarController.tabBar.isTranslucent = false
 
-        if let navs = tabBarController.viewControllers as? [UINavigationController] {
+        if let navs = mainTabBarController.viewControllers as? [UINavigationController] {
             for nav in navs {
                 nav.navigationBar.barTintColor = p.background
                 nav.navigationBar.tintColor = p.primaryText
@@ -131,12 +131,12 @@ final class RootContainerViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        tabBarController.view.frame = view.bounds
+        mainTabBarController.view.frame = view.bounds
         layoutPlayerContainers(animated: false)
     }
 
     private var miniPlayerFrame: CGRect {
-        let tabTop = tabBarController.tabBar.frame.minY
+        let tabTop = mainTabBarController.tabBar.frame.minY
         let y = (tabTop > 0 ? tabTop : view.bounds.height - 49) - miniHeight
         return CGRect(x: 0, y: y, width: view.bounds.width, height: miniHeight)
     }
@@ -148,21 +148,21 @@ final class RootContainerViewController: UIViewController {
                 self.watchVC.view.frame = CGRect(x: 0, y: self.view.bounds.height, width: self.view.bounds.width, height: self.view.bounds.height)
                 self.watchVC.view.isHidden = true
                 self.miniPlayerView.isHidden = true
-                self.tabBarController.tabBar.isHidden = false
+                self.mainTabBarController.tabBar.isHidden = false
                 self.updateTabBottomInsets(0)
             case .expanded:
                 self.watchVC.view.isHidden = false
                 self.watchVC.view.alpha = 1.0
                 self.watchVC.view.frame = self.view.bounds
                 self.miniPlayerView.isHidden = true
-                self.tabBarController.tabBar.isHidden = self.watchVC.isFullscreen
+                self.mainTabBarController.tabBar.isHidden = self.watchVC.isFullscreen
                 self.updateTabBottomInsets(0)
             case .mini:
                 self.watchVC.view.isHidden = true
                 self.miniPlayerView.isHidden = false
                 self.miniPlayerView.frame = self.miniPlayerFrame
                 self.miniPlayerView.refreshFromPlayer()
-                self.tabBarController.tabBar.isHidden = false
+                self.mainTabBarController.tabBar.isHidden = false
                 self.updateTabBottomInsets(self.miniHeight)
             }
         }
@@ -175,7 +175,7 @@ final class RootContainerViewController: UIViewController {
     }
 
     private func updateTabBottomInsets(_ extraBottom: CGFloat) {
-        guard let navs = tabBarController.viewControllers as? [UINavigationController] else { return }
+        guard let navs = mainTabBarController.viewControllers as? [UINavigationController] else { return }
         for nav in navs {
             nav.additionalSafeAreaInsets.bottom = extraBottom
         }
@@ -246,13 +246,13 @@ final class RootContainerViewController: UIViewController {
 
     func openChannel(channelId: String, name: String) {
         guard !channelId.isEmpty else { return }
-        guard let nav = tabBarController.selectedViewController as? UINavigationController else { return }
+        guard let nav = mainTabBarController.selectedViewController as? UINavigationController else { return }
         let vc = ChannelViewController(channelId: channelId, channelName: name)
         nav.pushViewController(vc, animated: true)
     }
 
     func openSearch() {
-        guard let nav = tabBarController.selectedViewController as? UINavigationController else { return }
+        guard let nav = mainTabBarController.selectedViewController as? UINavigationController else { return }
         let vc = SearchViewController()
         nav.pushViewController(vc, animated: true)
     }
