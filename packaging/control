@@ -1,0 +1,9 @@
+Package: com.litetube5s.app
+Name: LiteTube5s
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Ultra-lightweight YouTube client optimized for iPhone 5s (A7, iOS 12).
+Maintainer: LiteTube5s <dev@litetube5s.local>
+Author: LiteTube5s
+Section: Multimedia
+Depends: firmware (>= 12.0)
