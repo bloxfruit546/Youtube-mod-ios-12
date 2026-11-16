@@ -31,6 +31,7 @@ jobs:
             -scheme LiteTube5s \
             -configuration Release \
             -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -arch arm64 \
             -quiet \
             CODE_SIGNING_ALLOWED=NO \
