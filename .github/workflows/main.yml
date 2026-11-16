@@ -1,0 +1,85 @@
+name: Build LiteTube5s (.deb & .ipa)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build tools (xcodegen, ldid, dpkg)
+        run: |
+          brew update
+          brew install xcodegen ldid dpkg
+
+      - name: Generate Xcode project with XcodeGen
+        run: |
+          xcodegen generate
+
+      - name: Build LiteTube5s for iOS arm64 (Release, unsigned)
+        run: |
+          xcodebuild \
+            -project LiteTube5s.xcodeproj \
+            -scheme LiteTube5s \
+            -configuration Release \
+            -sdk iphoneos \
+            -arch arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ENABLE_BITCODE=NO \
+            CONFIGURATION_BUILD_DIR="$PWD/build/Release-iphoneos" \
+            build
+
+      - name: Fake-sign binary with ldid
+        run: |
+          APP_PATH="$PWD/build/Release-iphoneos/LiteTube5s.app"
+          test -d "$APP_PATH"
+          rm -rf "$APP_PATH/_CodeSignature"
+          chmod +x "$APP_PATH/LiteTube5s"
+          ldid -Sentitlements.plist "$APP_PATH/LiteTube5s"
+          ldid -e "$APP_PATH/LiteTube5s"
+
+      - name: Package .deb (gzip for Chimera / legacy dpkg)
+        run: |
+          DEB_ROOT="$PWD/build/deb"
+          rm -rf "$DEB_ROOT"
+          mkdir -p "$DEB_ROOT/DEBIAN"
+          mkdir -p "$DEB_ROOT/Applications"
+
+          tr -d '\r' < packaging/control > "$DEB_ROOT/DEBIAN/control"
+          tr -d '\r' < packaging/postinst > "$DEB_ROOT/DEBIAN/postinst"
+          chmod 0755 "$DEB_ROOT/DEBIAN/postinst"
+          chmod 0644 "$DEB_ROOT/DEBIAN/control"
+
+          cp -R "$PWD/build/Release-iphoneos/LiteTube5s.app" "$DEB_ROOT/Applications/"
+          chmod 0755 "$DEB_ROOT/Applications/LiteTube5s.app/LiteTube5s"
+
+          dpkg-deb -Zgzip -b "$DEB_ROOT" "$PWD/build/LiteTube5s.deb"
+          dpkg-deb -I "$PWD/build/LiteTube5s.deb"
+
+      - name: Package .ipa
+        run: |
+          IPA_ROOT="$PWD/build/ipa"
+          OUT_IPA="$PWD/build/LiteTube5s.ipa"
+          rm -rf "$IPA_ROOT" "$OUT_IPA"
+          mkdir -p "$IPA_ROOT/Payload"
+          cp -R "$PWD/build/Release-iphoneos/LiteTube5s.app" "$IPA_ROOT/Payload/"
+          (cd "$IPA_ROOT" && zip -qry "$OUT_IPA" Payload)
+          ls -lh "$PWD/build/LiteTube5s.deb" "$OUT_IPA"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiteTube5s-packages
+          path: |
+            build/LiteTube5s.deb
+            build/LiteTube5s.ipa
