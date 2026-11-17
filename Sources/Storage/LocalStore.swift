@@ -26,12 +26,17 @@ struct AppSettings: Codable, Equatable {
     var audioOnlyDefault: Bool
     var regionCode: String
     var preferredProvider: PreferredProvider
+    var enableLegacyProxyFallback: Bool?
     var pipedInstances: [String]
     var invidiousInstances: [String]
     var remoteConfigURL: String
     var instancesVersion: Int?
 
-    static let currentInstancesVersion = 3
+    var isLegacyProxyFallbackEnabled: Bool {
+        return enableLegacyProxyFallback ?? false
+    }
+
+    static let currentInstancesVersion = 4
 
     static let defaultPipedInstances: [String] = [
         "https://pipedapi.nosebs.ru",
@@ -52,7 +57,8 @@ struct AppSettings: Codable, Equatable {
             maxQuality: .p480,
             audioOnlyDefault: false,
             regionCode: "VN",
-            preferredProvider: .autoPipedFirst,
+            preferredProvider: .innertubeFirst,
+            enableLegacyProxyFallback: false,
             pipedInstances: defaultPipedInstances,
             invidiousInstances: defaultInvidiousInstances,
             remoteConfigURL: "",
@@ -115,6 +121,8 @@ final class LocalStore {
             }
             settingsCache = readJSON(AppSettings.self, from: settingsURL) ?? .default
             if (settingsCache.instancesVersion ?? 0) < AppSettings.currentInstancesVersion {
+                settingsCache.preferredProvider = .innertubeFirst
+                settingsCache.enableLegacyProxyFallback = false
                 settingsCache.pipedInstances = AppSettings.defaultPipedInstances
                 settingsCache.invidiousInstances = AppSettings.defaultInvidiousInstances
                 settingsCache.instancesVersion = AppSettings.currentInstancesVersion

@@ -55,6 +55,13 @@ final class ProviderManager: YouTubeDataSourceProtocol {
                     completion(.success(value))
                 }
             case .failure(let err):
+                if case DataProviderError.terminalUnplayable = err {
+                    AppLogger.shared.warn("Provider fast-fail [\(current.providerName)]: \(err.localizedDescription)")
+                    DispatchQueue.main.async {
+                        completion(.failure(err))
+                    }
+                    return
+                }
                 let desc = err.localizedDescription
                 let msg = desc.hasPrefix("\(current.providerName):") ? desc : "\(current.providerName): \(desc)"
                 AppLogger.shared.warn("Provider failover -> \(msg)")
@@ -94,15 +101,22 @@ final class ProviderManager: YouTubeDataSourceProtocol {
 
     func fetchVideoDetailsAndStreams(videoId: String, completion: @escaping (Result<StreamInfo, Error>) -> Void) {
         let cleanId = YouTubeParsing.extractCleanVideoId(videoId)
-        // Always prioritize direct Innertube (ANDROID_VR -> IOS -> TVHTML5) on residential IP first,
-        // then fall back to public Piped and Invidious instances.
-        let streamOrder: [YouTubeDataSourceProtocol] = [innertube, piped, invidious]
+        var streamOrder: [YouTubeDataSourceProtocol] = [innertube]
+        if LocalStore.shared.settings.isLegacyProxyFallbackEnabled {
+            streamOrder.append(contentsOf: [piped, invidious])
+        }
         executeWithFailover(providers: streamOrder, contextTag: "ID: \(cleanId)", operation: { provider, cb in
             provider.fetchVideoDetailsAndStreams(videoId: cleanId, completion: cb)
         }, completion: completion)
     }
 
     func fetchComments(videoId: String, completion: @escaping (Result<[CommentItem], Error>) -> Void) {
+        guard LocalStore.shared.settings.isLegacyProxyFallbackEnabled else {
+            DispatchQueue.main.async {
+                completion(.success([]))
+            }
+            return
+        }
         let commentOrder: [YouTubeDataSourceProtocol] = [piped, invidious]
         executeWithFailover(providers: commentOrder, operation: { provider, cb in
             provider.fetchComments(videoId: videoId, completion: cb)

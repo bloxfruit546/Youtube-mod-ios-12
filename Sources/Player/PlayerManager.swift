@@ -250,7 +250,7 @@ final class PlayerManager: NSObject {
                         self.duration = dur
                     }
                     if selection.isAudioOnly && selection.isHLS {
-                        self.disableVideoTracks(on: item)
+                        self.setVideoTracksEnabled(false, on: item)
                     }
                     if let target = seekTo, target > 1.0 {
                         let cm = CMTime(seconds: target, preferredTimescale: 600)
@@ -304,10 +304,11 @@ final class PlayerManager: NSObject {
         NotificationCenter.default.post(name: .playerStreamInfoDidUpdate, object: self)
     }
 
-    private func disableVideoTracks(on item: AVPlayerItem) {
+    private func setVideoTracksEnabled(_ enabled: Bool, on item: AVPlayerItem?) {
+        guard let item = item else { return }
         for track in item.tracks {
             if track.assetTrack?.mediaType == .video {
-                track.isEnabled = false
+                track.isEnabled = enabled
             }
         }
     }
@@ -403,16 +404,30 @@ final class PlayerManager: NSObject {
 
     func handleEnterBackground() {
         isInBackground = true
-        // Detach player from AVPlayerLayer so GPU stops decoding/rendering video frames in background
+        let wasPlaying = isPlaying
+        // Detach player from AVPlayerLayer & disable video tracks so A7 stops decoding/rendering video frames
         playerLayer.player = nil
+        setVideoTracksEnabled(false, on: player.currentItem)
         if let video = currentVideo {
             LocalStore.shared.recordHistory(video: video, positionSeconds: currentTime)
+        }
+        // Guard against iOS 12 pausing HLS playback when playerLayer is detached
+        if wasPlaying {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self = self, self.isInBackground else { return }
+                if self.player.rate == 0 {
+                    self.player.play()
+                }
+            }
         }
     }
 
     func handleEnterForeground() {
         isInBackground = false
         playerLayer.player = player
+        if !isAudioOnly {
+            setVideoTracksEnabled(true, on: player.currentItem)
+        }
     }
 
     // MARK: - Notifications

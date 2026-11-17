@@ -20,6 +20,10 @@ final class RootContainerViewController: UIViewController {
         return ThemeManager.shared.palette.statusBarStyle
     }
 
+    override var prefersStatusBarHidden: Bool {
+        return presentationState == .expanded && watchVC.isFullscreen
+    }
+
     override var shouldAutorotate: Bool {
         return true
     }

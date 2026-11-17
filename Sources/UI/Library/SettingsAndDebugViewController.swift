@@ -206,7 +206,7 @@ extension SettingsAndDebugViewController: UITableViewDataSource, UITableViewDele
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
         case 0: return 4
-        case 1: return 4
+        case 1: return 5
         case 2: return 5
         case 3: return diagnosticResults.count
         default: return 0
@@ -243,14 +243,17 @@ extension SettingsAndDebugViewController: UITableViewDataSource, UITableViewDele
             cell.textLabel?.text = "Thứ tự nguồn phát"
             cell.detailTextLabel?.text = s.preferredProvider.rawValue.uppercased()
         case (1, 1):
+            cell.textLabel?.text = "Dự phòng Piped/Invidious"
+            cell.detailTextLabel?.text = s.isLegacyProxyFallbackEnabled ? "Bật" : "Tắt"
+        case (1, 2):
             cell.textLabel?.text = "Piped instances"
             cell.detailTextLabel?.text = "\(s.pipedInstances.count) server"
             cell.accessoryType = .disclosureIndicator
-        case (1, 2):
+        case (1, 3):
             cell.textLabel?.text = "Invidious instances"
             cell.detailTextLabel?.text = "\(s.invidiousInstances.count) server"
             cell.accessoryType = .disclosureIndicator
-        case (1, 3):
+        case (1, 4):
             cell.textLabel?.text = "Cập nhật từ remote_config.json"
             cell.detailTextLabel?.text = s.remoteConfigURL.isEmpty ? "Chưa đặt" : "Đã đặt"
             cell.accessoryType = .disclosureIndicator
@@ -305,10 +308,14 @@ extension SettingsAndDebugViewController: UITableViewDataSource, UITableViewDele
         case (1, 0):
             chooseProviderOrder()
         case (1, 1):
-            editInstances(isPiped: true)
+            LocalStore.shared.updateSettings { s in
+                s.enableLegacyProxyFallback = !s.isLegacyProxyFallbackEnabled
+            }
         case (1, 2):
-            editInstances(isPiped: false)
+            editInstances(isPiped: true)
         case (1, 3):
+            editInstances(isPiped: false)
+        case (1, 4):
             promptRemoteConfig()
         case (2, 1):
             runSSLDiagnostics()

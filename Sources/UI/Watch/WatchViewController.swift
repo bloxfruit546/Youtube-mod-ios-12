@@ -133,6 +133,9 @@ final class WatchViewController: UIViewController {
     private let spinner = UIActivityIndicatorView(style: .whiteLarge)
     private let errorOverlayLabel = UILabel()
     private let retryPlayerButton = UIButton(type: .system)
+    private let errorDetailButton = UIButton(type: .system)
+    private let seekFeedbackLabel = UILabel()
+    private var lastFullErrorMessage: String = ""
 
     private let elapsedLabel = UILabel()
     private let durationLabel = UILabel()
@@ -172,9 +175,14 @@ final class WatchViewController: UIViewController {
     private var isLoadingComments = false
     private var commentsLoadedForVideoId: String?
 
+    override var prefersStatusBarHidden: Bool {
+        return isFullscreen
+    }
+
     var isFullscreen = false {
         didSet {
             onFullscreenChanged?(isFullscreen)
+            setNeedsStatusBarAppearanceUpdate()
             view.setNeedsLayout()
         }
     }
@@ -227,9 +235,16 @@ final class WatchViewController: UIViewController {
         controlsOverlay.backgroundColor = UIColor(white: 0, alpha: 0.45)
         playerContainerView.addSubview(controlsOverlay)
 
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.cancelsTouchesInView = false
+        doubleTap.delegate = self
+        playerContainerView.addGestureRecognizer(doubleTap)
+
         let tap = UITapGestureRecognizer(target: self, action: #selector(toggleControlsOverlay))
         tap.cancelsTouchesInView = false
         tap.delegate = self
+        tap.require(toFail: doubleTap)
         playerContainerView.addGestureRecognizer(tap)
 
         minimizeButton.setImage(VectorIcons.chevronDown(size: 20), for: .normal)
@@ -270,21 +285,34 @@ final class WatchViewController: UIViewController {
         playerContainerView.addSubview(spinner)
 
         errorOverlayLabel.textColor = .white
-        errorOverlayLabel.font = UIFont.systemFont(ofSize: 10.5)
+        errorOverlayLabel.font = UIFont.systemFont(ofSize: 12)
         errorOverlayLabel.textAlignment = .center
-        errorOverlayLabel.numberOfLines = 0
-        errorOverlayLabel.adjustsFontSizeToFitWidth = true
-        errorOverlayLabel.minimumScaleFactor = 0.75
+        errorOverlayLabel.numberOfLines = 3
         errorOverlayLabel.isHidden = true
         playerContainerView.addSubview(errorOverlayLabel)
 
         retryPlayerButton.setTitle("Thử lại", for: .normal)
-        retryPlayerButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 13)
+        retryPlayerButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 12.5)
         retryPlayerButton.setTitleColor(.white, for: .normal)
         retryPlayerButton.backgroundColor = UIColor(red: 0.85, green: 0.1, blue: 0.1, alpha: 1.0)
         retryPlayerButton.isHidden = true
         retryPlayerButton.addTarget(self, action: #selector(handleRetryPlayer), for: .touchUpInside)
         playerContainerView.addSubview(retryPlayerButton)
+
+        errorDetailButton.setTitle("Chi tiết", for: .normal)
+        errorDetailButton.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .medium)
+        errorDetailButton.setTitleColor(.white, for: .normal)
+        errorDetailButton.backgroundColor = UIColor(white: 0.25, alpha: 0.9)
+        errorDetailButton.isHidden = true
+        errorDetailButton.addTarget(self, action: #selector(handleShowErrorDetail), for: .touchUpInside)
+        playerContainerView.addSubview(errorDetailButton)
+
+        seekFeedbackLabel.font = UIFont.boldSystemFont(ofSize: 13)
+        seekFeedbackLabel.textColor = .white
+        seekFeedbackLabel.backgroundColor = UIColor(white: 0.08, alpha: 0.85)
+        seekFeedbackLabel.textAlignment = .center
+        seekFeedbackLabel.isHidden = true
+        playerContainerView.addSubview(seekFeedbackLabel)
 
         elapsedLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         elapsedLabel.textColor = .white
@@ -439,7 +467,7 @@ final class WatchViewController: UIViewController {
         let h = view.bounds.height
         let topInset: CGFloat
         if #available(iOS 11.0, *) {
-            topInset = isFullscreen ? 0 : view.safeAreaInsets.top
+            topInset = isFullscreen ? 0 : max(20, view.safeAreaInsets.top)
         } else {
             topInset = isFullscreen ? 0 : 20
         }
@@ -483,8 +511,14 @@ final class WatchViewController: UIViewController {
         forwardButton.frame = CGRect(x: centerPlayPauseButton.frame.maxX + 16, y: (ch - 40) * 0.5, width: 50, height: 40)
 
         spinner.center = CGPoint(x: cw * 0.5, y: ch * 0.5)
-        errorOverlayLabel.frame = CGRect(x: 10, y: 12, width: max(60, cw - 20), height: max(40, ch - 56))
-        retryPlayerButton.frame = CGRect(x: (cw - 100) * 0.5, y: ch - 40, width: 100, height: 30)
+        errorOverlayLabel.frame = CGRect(x: 14, y: 46, width: max(60, cw - 28), height: max(42, ch - 94))
+        let btnW: CGFloat = 86
+        let gap: CGFloat = 10
+        let totalBtnsW = btnW * 2 + gap
+        let btnStartX = (cw - totalBtnsW) * 0.5
+        retryPlayerButton.frame = CGRect(x: btnStartX, y: ch - 40, width: btnW, height: 28)
+        errorDetailButton.frame = CGRect(x: btnStartX + btnW + gap, y: ch - 40, width: btnW, height: 28)
+        seekFeedbackLabel.frame = CGRect(x: (cw - 110) * 0.5, y: (ch - 28) * 0.5, width: 110, height: 28)
 
         let bottomY = ch - 34
         elapsedLabel.frame = CGRect(x: 8, y: bottomY, width: 46, height: 26)
@@ -609,6 +643,19 @@ final class WatchViewController: UIViewController {
         }
     }
 
+    private func setCenterTransportHidden(_ hidden: Bool) {
+        centerPlayPauseButton.isHidden = hidden
+        rewindButton.isHidden = hidden
+        forwardButton.isHidden = hidden
+    }
+
+    private func setBottomBarHidden(_ hidden: Bool) {
+        elapsedLabel.isHidden = hidden
+        durationLabel.isHidden = hidden
+        seekSlider.isHidden = hidden
+        fullscreenButton.isHidden = hidden
+    }
+
     @objc private func handlePlayerState() {
         let pm = PlayerManager.shared
         switch pm.state {
@@ -616,31 +663,46 @@ final class WatchViewController: UIViewController {
             spinner.stopAnimating()
             errorOverlayLabel.isHidden = true
             retryPlayerButton.isHidden = true
+            errorDetailButton.isHidden = true
+            setCenterTransportHidden(false)
+            setBottomBarHidden(false)
         case .loading:
             spinner.startAnimating()
             errorOverlayLabel.isHidden = true
             retryPlayerButton.isHidden = true
-            centerPlayPauseButton.isHidden = true
+            errorDetailButton.isHidden = true
+            setCenterTransportHidden(true)
+            setBottomBarHidden(false)
         case .playing:
             spinner.stopAnimating()
             errorOverlayLabel.isHidden = true
             retryPlayerButton.isHidden = true
-            centerPlayPauseButton.isHidden = false
+            errorDetailButton.isHidden = true
+            setCenterTransportHidden(false)
+            setBottomBarHidden(false)
             centerPlayPauseButton.setImage(VectorIcons.pause(size: 36), for: .normal)
+            scheduleHideControls()
         case .paused:
             spinner.stopAnimating()
             errorOverlayLabel.isHidden = true
             retryPlayerButton.isHidden = true
-            centerPlayPauseButton.isHidden = false
+            errorDetailButton.isHidden = true
+            setCenterTransportHidden(false)
+            setBottomBarHidden(false)
             centerPlayPauseButton.setImage(VectorIcons.play(size: 36), for: .normal)
         case .failed(let msg):
             spinner.stopAnimating()
-            centerPlayPauseButton.isHidden = true
+            setCenterTransportHidden(true)
+            setBottomBarHidden(true)
+            controlsOverlay.isHidden = false
+            isControlsVisible = true
+            lastFullErrorMessage = msg
             errorOverlayLabel.isHidden = false
-            errorOverlayLabel.text = "Không phát được video\n\(msg)"
-            providerLabel.text = "Lỗi chi tiết: \(msg)"
+            errorOverlayLabel.text = msg
+            providerLabel.text = "Lỗi: \(msg)"
             layoutInfoHeader(forWidth: view.bounds.width)
             retryPlayerButton.isHidden = false
+            errorDetailButton.isHidden = false
         }
         refreshAudioOnlyVisuals()
     }
@@ -713,6 +775,19 @@ final class WatchViewController: UIViewController {
 
     // MARK: - Actions
 
+    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+        let loc = gesture.location(in: playerContainerView)
+        let isRight = loc.x >= playerContainerView.bounds.width * 0.5
+        let delta: Double = isRight ? 10.0 : -10.0
+        PlayerManager.shared.seek(to: PlayerManager.shared.currentTime + delta)
+
+        seekFeedbackLabel.text = isRight ? "+10 giây >>" : "<< -10 giây"
+        seekFeedbackLabel.isHidden = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.seekFeedbackLabel.isHidden = true
+        }
+    }
+
     @objc private func toggleControlsOverlay() {
         isControlsVisible.toggle()
         controlsOverlay.isHidden = !isControlsVisible
@@ -729,7 +804,16 @@ final class WatchViewController: UIViewController {
             self.controlsOverlay.isHidden = true
         }
         hideControlsWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: item)
+    }
+
+    @objc private func handleShowErrorDetail() {
+        let alert = UIAlertController(title: "Chi tiết lỗi phát video", message: lastFullErrorMessage, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Sao chép", style: .default) { [weak self] _ in
+            UIPasteboard.general.string = self?.lastFullErrorMessage
+        })
+        alert.addAction(UIAlertAction(title: "Đóng", style: .cancel))
+        present(alert, animated: true)
     }
 
     @objc private func handleMinimizeTap() {

@@ -7,6 +7,7 @@ enum DataProviderError: LocalizedError {
     case rateLimited
     case decodingError(String)
     case noPlayableH264Stream
+    case terminalUnplayable(String)
     case providerDetail(provider: String, detail: String)
     case allProvidersFailed([String])
 
@@ -23,7 +24,9 @@ enum DataProviderError: LocalizedError {
         case .decodingError(let msg):
             return "DecodingError: \(msg)"
         case .noPlayableH264Stream:
-            return "Không có luồng H.264/HLS tương thích A7"
+            return "Không tìm thấy luồng H.264/HLS tương thích A7"
+        case .terminalUnplayable(let reason):
+            return reason
         case .providerDetail(let provider, let detail):
             return "\(provider): \(detail)"
         case .allProvidersFailed(let details):

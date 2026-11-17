@@ -293,9 +293,17 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
             case .success(let dict):
                 var items: [VideoItem] = []
                 self.collectVideoRenderers(in: dict, into: &items)
-                completion(.success(VideoFilter.filterOutShorts(items)))
-            case .failure(let err):
-                completion(.failure(err))
+                let filtered = VideoFilter.filterOutShorts(items)
+                if !filtered.isEmpty {
+                    completion(.success(filtered))
+                } else {
+                    // Fallback if YouTube hides FEtrending when logged out
+                    let query = region.uppercased() == "VN" ? "thịnh hành việt nam mới nhất" : "trending music news"
+                    self.search(query: query, completion: completion)
+                }
+            case .failure:
+                let query = region.uppercased() == "VN" ? "thịnh hành việt nam mới nhất" : "trending music news"
+                self.search(query: query, completion: completion)
             }
         }
     }
@@ -403,6 +411,11 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
                         completion(.success(full))
                     }
                 case .failure(let parseErr):
+                    if case DataProviderError.terminalUnplayable = parseErr {
+                        AppLogger.shared.warn("Innertube fast-fail [\(client.rawValue)]: \(parseErr.localizedDescription)")
+                        completion(.failure(parseErr))
+                        return
+                    }
                     let detail = "\(client.rawValue): \(parseErr.localizedDescription)"
                     AppLogger.shared.warn("Innertube client failover -> \(detail)")
                     self.attemptPlayerClient(
@@ -440,7 +453,10 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
         if let playability = dict["playabilityStatus"] as? [String: Any] {
             let status = (playability["status"] as? String) ?? "UNKNOWN"
             if status != "OK" {
-                let reason = (playability["reason"] as? String) ?? ""
+                let reason = ((playability["reason"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if (status == "UNPLAYABLE" || status == "LIVE_STREAM_OFFLINE" || status == "ERROR") && !reason.isEmpty {
+                    return .failure(DataProviderError.terminalUnplayable("Video không khả dụng: \(reason)"))
+                }
                 let msg = reason.isEmpty ? status : "\(status) (\(reason))"
                 return .failure(DataProviderError.networkError(msg))
             }
