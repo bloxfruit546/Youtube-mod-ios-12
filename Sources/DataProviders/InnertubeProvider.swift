@@ -25,14 +25,20 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
     }
 
     private func webContext(region: String) -> [String: Any] {
-        return [
-            "client": [
-                "clientName": "WEB",
-                "clientVersion": "2.20250310.01.00",
-                "hl": "vi",
-                "gl": region
-            ]
+        visitorLock.lock()
+        let vd = cachedVisitorData
+        visitorLock.unlock()
+
+        var client: [String: Any] = [
+            "clientName": "WEB",
+            "clientVersion": "2.20250310.01.00",
+            "hl": "vi",
+            "gl": region
         ]
+        if let vd = vd, !vd.isEmpty {
+            client["visitorData"] = vd
+        }
+        return ["client": client]
     }
 
     private func playerRequestConfig(
@@ -397,7 +403,11 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
             case .success(let dict):
                 switch self.parsePlayerDict(dict, videoId: videoId, client: client, avHeaders: cfg.avPlayerHeaders) {
                 case .success(let partialInfo):
-                    self.fetchRelatedOnly(videoId: videoId, region: region) { related in
+                    self.fetchRelatedOnly(
+                        videoId: videoId,
+                        fallbackQuery: partialInfo.video.title,
+                        region: region
+                    ) { related in
                         let full = StreamInfo(
                             video: partialInfo.video,
                             hlsURL: partialInfo.hlsURL,
@@ -561,7 +571,12 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
         ))
     }
 
-    private func fetchRelatedOnly(videoId: String, region: String, completion: @escaping ([VideoItem]) -> Void) {
+    private func fetchRelatedOnly(
+        videoId: String,
+        fallbackQuery: String,
+        region: String,
+        completion: @escaping ([VideoItem]) -> Void
+    ) {
         let payload: [String: Any] = [
             "context": webContext(region: region),
             "videoId": videoId
@@ -571,13 +586,27 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
                 completion([])
                 return
             }
-            switch result {
-            case .success(let dict):
+            if case .success(let dict) = result {
                 var related: [VideoItem] = []
                 self.collectVideoRenderers(in: dict, into: &related)
-                completion(VideoFilter.filterOutShorts(related))
-            case .failure:
+                let filtered = VideoFilter.filterOutShorts(related).filter { $0.id != videoId }
+                if !filtered.isEmpty {
+                    completion(filtered)
+                    return
+                }
+            }
+            // Fallback to title search if /next returned empty
+            let q = fallbackQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !q.isEmpty else {
                 completion([])
+                return
+            }
+            self.search(query: q) { searchRes in
+                if case .success(let items) = searchRes {
+                    completion(items.filter { $0.id != videoId })
+                } else {
+                    completion([])
+                }
             }
         }
     }
@@ -636,12 +665,17 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
         if out.count >= 40 { return }
 
         if let dict = node as? [String: Any] {
-            for key in ["videoRenderer", "compactVideoRenderer", "gridVideoRenderer"] {
+            for key in ["videoRenderer", "compactVideoRenderer", "gridVideoRenderer", "videoWithContextRenderer"] {
                 if let r = dict[key] as? [String: Any],
                    let item = parseRenderer(r, fallbackChannelId: fallbackChannelId, fallbackChannelName: fallbackChannelName),
                    !out.contains(where: { $0.id == item.id }) {
                     out.append(item)
                 }
+            }
+            if let lockup = dict["lockupViewModel"] as? [String: Any],
+               let item = parseLockupViewModel(lockup, fallbackChannelId: fallbackChannelId, fallbackChannelName: fallbackChannelName),
+               !out.contains(where: { $0.id == item.id }) {
+                out.append(item)
             }
             for value in dict.values {
                 collectVideoRenderers(in: value, into: &out, fallbackChannelId: fallbackChannelId, fallbackChannelName: fallbackChannelName)
@@ -651,6 +685,75 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
                 collectVideoRenderers(in: element, into: &out, fallbackChannelId: fallbackChannelId, fallbackChannelName: fallbackChannelName)
             }
         }
+    }
+
+    private func parseLockupViewModel(
+        _ l: [String: Any],
+        fallbackChannelId: String,
+        fallbackChannelName: String
+    ) -> VideoItem? {
+        if let contentType = l["contentType"] as? String,
+           contentType != "LOCKUP_CONTENT_TYPE_VIDEO" {
+            return nil
+        }
+        guard let rawId = l["contentId"] as? String else { return nil }
+        let videoId = YouTubeParsing.extractCleanVideoId(rawId)
+        guard !videoId.isEmpty else { return nil }
+
+        let metaContainer = (l["metadata"] as? [String: Any])?["lockupMetadataViewModel"] as? [String: Any]
+        let title = (metaContainer?["title"] as? [String: Any])?["content"] as? String ?? ""
+        guard !title.isEmpty else { return nil }
+
+        var chName = fallbackChannelName
+        var viewsText = ""
+        var published = ""
+        if let rows = ((metaContainer?["metadata"] as? [String: Any])?["contentMetadataViewModel"] as? [String: Any])?["metadataRows"] as? [[String: Any]] {
+            if let firstParts = rows.first?["metadataParts"] as? [[String: Any]],
+               let firstText = (firstParts.first?["text"] as? [String: Any])?["content"] as? String,
+               !firstText.isEmpty {
+                chName = firstText
+            }
+            if rows.count > 1, let secondParts = rows[1]["metadataParts"] as? [[String: Any]] {
+                if let v = (secondParts.first?["text"] as? [String: Any])?["content"] as? String {
+                    viewsText = v
+                }
+                if secondParts.count > 1, let p = (secondParts[1]["text"] as? [String: Any])?["content"] as? String {
+                    published = p
+                }
+            }
+        }
+
+        var duration = 0
+        if let thumbVM = (l["contentImage"] as? [String: Any])?["thumbnailViewModel"] as? [String: Any],
+           let overlays = thumbVM["overlays"] as? [[String: Any]] {
+            for ov in overlays {
+                if let badgeVM = ov["thumbnailOverlayBadgeViewModel"] as? [String: Any],
+                   let badges = badgeVM["thumbnailBadges"] as? [[String: Any]] {
+                    for b in badges {
+                        if let text = (b["thumbnailBadgeViewModel"] as? [String: Any])?["text"] as? String {
+                            let d = YouTubeParsing.parseDurationString(text)
+                            if d > 0 {
+                                duration = d
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return VideoItem(
+            id: videoId,
+            title: title,
+            channelId: fallbackChannelId,
+            channelName: chName,
+            thumbnailURL: VideoItem.defaultThumbnailURL(for: videoId),
+            durationSeconds: duration,
+            viewCount: YouTubeParsing.parseInt64(viewsText),
+            uploadedText: published,
+            isLive: false,
+            isShort: false
+        )
     }
 
     private func parseRenderer(
@@ -664,9 +767,10 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
         let title = extractText(r["title"])
         guard !title.isEmpty else { return nil }
 
-        let chName = extractText(r["ownerText"]).isEmpty
-            ? (extractText(r["longBylineText"]).isEmpty ? fallbackChannelName : extractText(r["longBylineText"]))
-            : extractText(r["ownerText"])
+        let owner = extractText(r["ownerText"])
+        let longBy = extractText(r["longBylineText"])
+        let shortBy = extractText(r["shortBylineText"])
+        let chName = !owner.isEmpty ? owner : (!longBy.isEmpty ? longBy : (!shortBy.isEmpty ? shortBy : fallbackChannelName))
 
         var chId = fallbackChannelId
         if let runs = (r["ownerText"] as? [String: Any])?["runs"] as? [[String: Any]],

@@ -103,7 +103,8 @@ final class ProviderManager: YouTubeDataSourceProtocol {
         let cleanId = YouTubeParsing.extractCleanVideoId(videoId)
         var streamOrder: [YouTubeDataSourceProtocol] = [innertube]
         if LocalStore.shared.settings.isLegacyProxyFallbackEnabled {
-            streamOrder.append(contentsOf: [piped, invidious])
+            streamOrder.append(piped)
+            streamOrder.append(invidious)
         }
         executeWithFailover(providers: streamOrder, contextTag: "ID: \(cleanId)", operation: { provider, cb in
             provider.fetchVideoDetailsAndStreams(videoId: cleanId, completion: cb)
