@@ -229,7 +229,7 @@ final class PlayerManager: NSObject {
             ]
         }
         let asset = AVURLAsset(url: selection.url, options: [
-            AVURLAssetHTTPHeaderFieldsKey: headers
+            "AVURLAssetHTTPHeaderFieldsKey": headers
         ])
         let item = AVPlayerItem(asset: asset)
         // Strictly bound forward buffer on iPhone 5s 1GB RAM
