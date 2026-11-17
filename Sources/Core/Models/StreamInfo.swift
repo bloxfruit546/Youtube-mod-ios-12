@@ -72,16 +72,37 @@ struct StreamInfo {
     let relatedVideos: [VideoItem]
     let providerName: String
     let fetchedAt: Date
+    let httpHeaders: [String: String]
+
+    init(
+        video: VideoItem,
+        hlsURL: URL?,
+        progressiveStreams: [VideoStreamOption],
+        audioOnlyStreams: [VideoStreamOption],
+        relatedVideos: [VideoItem],
+        providerName: String,
+        fetchedAt: Date,
+        httpHeaders: [String: String] = [:]
+    ) {
+        self.video = video
+        self.hlsURL = hlsURL
+        self.progressiveStreams = progressiveStreams
+        self.audioOnlyStreams = audioOnlyStreams
+        self.relatedVideos = relatedVideos
+        self.providerName = providerName
+        self.fetchedAt = fetchedAt
+        self.httpHeaders = httpHeaders
+    }
 
     /// Selects the safest hardware-accelerated stream for iPhone 5s (A7).
     /// Priority:
-    /// 1. Audio-only M4A/AAC (Itag 140) when audioOnly == true (fallback to HLS with video track disabled).
+    /// 1. Audio-only M4A/AAC (Itag 140 / 139) when audioOnly == true (fallback to HLS with video track disabled).
     /// 2. HLS (.m3u8) with preferredPeakBitRate capped to maxQuality (480p default, 720p max).
     /// 3. Progressive MP4 (H.264 + AAC, e.g. Itag 18 360p or Itag 22 720p).
     func bestSelection(maxQuality: MaxVideoQuality, audioOnly: Bool) -> StreamSelection? {
         if audioOnly {
             let validAudio = audioOnlyStreams
-                .filter { $0.isH264 || $0.mimeType.lowercased().contains("mp4") || $0.itag == 140 }
+                .filter { $0.isH264 || $0.mimeType.lowercased().contains("mp4") || $0.itag == 140 || $0.itag == 139 }
                 .sorted { abs($0.bitrate - 128_000) < abs($1.bitrate - 128_000) }
             if let bestAudio = validAudio.first {
                 return StreamSelection(

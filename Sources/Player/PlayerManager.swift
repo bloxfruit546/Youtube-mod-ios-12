@@ -218,7 +218,19 @@ final class PlayerManager: NSObject {
         currentSelection = selection
         state = .loading
 
-        let asset = AVURLAsset(url: selection.url)
+        let headers: [String: String]
+        if !info.httpHeaders.isEmpty {
+            headers = info.httpHeaders
+        } else {
+            headers = [
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+                "Origin": "https://www.youtube.com",
+                "Referer": "https://www.youtube.com/"
+            ]
+        }
+        let asset = AVURLAsset(url: selection.url, options: [
+            AVURLAssetHTTPHeaderFieldsKey: headers
+        ])
         let item = AVPlayerItem(asset: asset)
         // Strictly bound forward buffer on iPhone 5s 1GB RAM
         item.preferredForwardBufferDuration = 15.0

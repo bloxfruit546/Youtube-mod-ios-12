@@ -1,10 +1,11 @@
 import Foundation
 
-/// Direct Innertube (youtubei/v1) provider running straight from the iPhone's residential IP.
-/// Implements multi-client fallback for `/player`:
-/// 1. ANDROID_VR (returns direct Itag 18 MP4 H.264+AAC & HLS without PO Token or signatureCipher)
-/// 2. IOS (with auto-fetched VISITOR_DATA for HLS manifest)
-/// 3. TVHTML5_SIMPLY_EMBEDDED_PLAYER (embedded fallback)
+/// Direct Innertube (youtubei/v1) provider running from the iPhone's residential IP.
+/// Client fallback order (yt-dlp aligned):
+/// 1. VISIONOS (1.02, client ID 101, Mac/Safari UA + visitorData)
+/// 2. WEB_EMBEDDED_PLAYER (client ID 56, for kids/embed/itag 18)
+/// 3. MWEB (client ID 2, iPad Safari UA + visitorData)
+/// 4. ANDROID_VR (1.71.26, client ID 28)
 final class InnertubeProvider: YouTubeDataSourceProtocol {
     let providerName = "Innertube"
 
@@ -12,17 +13,22 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
     private let visitorLock = NSLock()
     private var cachedVisitorData: String?
 
+    private let visionOSUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+    private let mwebUserAgent = "Mozilla/5.0 (iPad; CPU OS 16_7_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+    private let androidVRUserAgent = "com.google.android.apps.youtube.vr.oculus/1.71.26 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+
     private enum PlayerClientKind: String {
+        case visionOS = "VISIONOS"
+        case webEmbedded = "WEB_EMBEDDED_PLAYER"
+        case mweb = "MWEB"
         case androidVR = "ANDROID_VR"
-        case ios = "IOS"
-        case tvEmbedded = "TVHTML5_SIMPLY_EMBEDDED_PLAYER"
     }
 
     private func webContext(region: String) -> [String: Any] {
         return [
             "client": [
                 "clientName": "WEB",
-                "clientVersion": "2.20240726.00.00",
+                "clientVersion": "2.20250310.01.00",
                 "hl": "vi",
                 "gl": region
             ]
@@ -34,14 +40,121 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
         videoId: String,
         region: String,
         visitorData: String?
-    ) -> (payload: [String: Any], headers: [String: String]) {
+    ) -> (payload: [String: Any], headers: [String: String], avPlayerHeaders: [String: String]) {
         switch client {
+        case .visionOS:
+            var clientDict: [String: Any] = [
+                "clientName": "VISIONOS",
+                "clientVersion": "1.02",
+                "hl": "vi",
+                "gl": region
+            ]
+            if let vd = visitorData, !vd.isEmpty {
+                clientDict["visitorData"] = vd
+            }
+            let payload: [String: Any] = [
+                "context": ["client": clientDict],
+                "videoId": videoId,
+                "contentCheckOk": true,
+                "racyCheckOk": true
+            ]
+            var headers = [
+                "Content-Type": "application/json",
+                "User-Agent": visionOSUserAgent,
+                "Origin": "https://www.youtube.com",
+                "Referer": "https://www.youtube.com/",
+                "X-YouTube-Client-Name": "101",
+                "X-YouTube-Client-Version": "1.02"
+            ]
+            if let vd = visitorData, !vd.isEmpty {
+                headers["X-Goog-Visitor-Id"] = vd
+            }
+            let avHeaders = [
+                "User-Agent": visionOSUserAgent,
+                "Origin": "https://www.youtube.com",
+                "Referer": "https://www.youtube.com/"
+            ]
+            return (payload, headers, avHeaders)
+
+        case .webEmbedded:
+            var clientDict: [String: Any] = [
+                "clientName": "WEB_EMBEDDED_PLAYER",
+                "clientVersion": "1.20250310.01.00",
+                "hl": "vi",
+                "gl": region
+            ]
+            if let vd = visitorData, !vd.isEmpty {
+                clientDict["visitorData"] = vd
+            }
+            let payload: [String: Any] = [
+                "context": [
+                    "client": clientDict,
+                    "thirdParty": [
+                        "embedUrl": "https://www.youtube.com/"
+                    ]
+                ],
+                "videoId": videoId,
+                "contentCheckOk": true,
+                "racyCheckOk": true
+            ]
+            var headers = [
+                "Content-Type": "application/json",
+                "User-Agent": visionOSUserAgent,
+                "Origin": "https://www.youtube.com",
+                "Referer": "https://www.youtube.com/",
+                "X-YouTube-Client-Name": "56",
+                "X-YouTube-Client-Version": "1.20250310.01.00"
+            ]
+            if let vd = visitorData, !vd.isEmpty {
+                headers["X-Goog-Visitor-Id"] = vd
+            }
+            let avHeaders = [
+                "User-Agent": visionOSUserAgent,
+                "Origin": "https://www.youtube.com",
+                "Referer": "https://www.youtube.com/"
+            ]
+            return (payload, headers, avHeaders)
+
+        case .mweb:
+            var clientDict: [String: Any] = [
+                "clientName": "MWEB",
+                "clientVersion": "2.20250310.01.00",
+                "hl": "vi",
+                "gl": region
+            ]
+            if let vd = visitorData, !vd.isEmpty {
+                clientDict["visitorData"] = vd
+            }
+            let payload: [String: Any] = [
+                "context": ["client": clientDict],
+                "videoId": videoId,
+                "contentCheckOk": true,
+                "racyCheckOk": true
+            ]
+            var headers = [
+                "Content-Type": "application/json",
+                "User-Agent": mwebUserAgent,
+                "Origin": "https://m.youtube.com",
+                "Referer": "https://m.youtube.com/",
+                "X-YouTube-Client-Name": "2",
+                "X-YouTube-Client-Version": "2.20250310.01.00"
+            ]
+            if let vd = visitorData, !vd.isEmpty {
+                headers["X-Goog-Visitor-Id"] = vd
+            }
+            let avHeaders = [
+                "User-Agent": mwebUserAgent,
+                "Origin": "https://m.youtube.com",
+                "Referer": "https://m.youtube.com/"
+            ]
+            return (payload, headers, avHeaders)
+
         case .androidVR:
             let payload: [String: Any] = [
                 "context": [
                     "client": [
                         "clientName": "ANDROID_VR",
-                        "clientVersion": "1.65.10",
+                        "clientVersion": "1.71.26",
                         "deviceMake": "Oculus",
                         "deviceModel": "Quest 3",
                         "osName": "Android",
@@ -57,69 +170,18 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
             ]
             let headers = [
                 "Content-Type": "application/json",
-                "User-Agent": "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+                "User-Agent": androidVRUserAgent,
+                "Origin": "https://www.youtube.com",
+                "Referer": "https://www.youtube.com/",
                 "X-YouTube-Client-Name": "28",
-                "X-YouTube-Client-Version": "1.65.10"
+                "X-YouTube-Client-Version": "1.71.26"
             ]
-            return (payload, headers)
-
-        case .ios:
-            var clientDict: [String: Any] = [
-                "clientName": "IOS",
-                "clientVersion": "20.11.6",
-                "deviceMake": "Apple",
-                "deviceModel": "iPhone10,4",
-                "osName": "iOS",
-                "osVersion": "16.7.7.20H330",
-                "hl": "vi",
-                "gl": region
+            let avHeaders = [
+                "User-Agent": androidVRUserAgent,
+                "Origin": "https://www.youtube.com",
+                "Referer": "https://www.youtube.com/"
             ]
-            if let vd = visitorData, !vd.isEmpty {
-                clientDict["visitorData"] = vd
-            }
-            let payload: [String: Any] = [
-                "context": [
-                    "client": clientDict
-                ],
-                "videoId": videoId,
-                "contentCheckOk": true,
-                "racyCheckOk": true
-            ]
-            var headers = [
-                "Content-Type": "application/json",
-                "User-Agent": "com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)",
-                "X-YouTube-Client-Name": "5",
-                "X-YouTube-Client-Version": "20.11.6"
-            ]
-            if let vd = visitorData, !vd.isEmpty {
-                headers["X-Goog-Visitor-Id"] = vd
-            }
-            return (payload, headers)
-
-        case .tvEmbedded:
-            let payload: [String: Any] = [
-                "context": [
-                    "client": [
-                        "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-                        "clientVersion": "2.0",
-                        "hl": "vi",
-                        "gl": region
-                    ],
-                    "thirdParty": [
-                        "embedUrl": "https://www.youtube.com/"
-                    ]
-                ],
-                "videoId": videoId,
-                "contentCheckOk": true,
-                "racyCheckOk": true
-            ]
-            let headers = [
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/4.0 Chrome/76.0.3809.146 TV Safari/537.36",
-                "X-YouTube-Client-Name": "85",
-                "X-YouTube-Client-Version": "2.0"
-            ]
-            return (payload, headers)
+            return (payload, headers, avHeaders)
         }
     }
 
@@ -157,6 +219,7 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
         }
     }
 
+    /// Fetches visitorData cleanly from `/youtubei/v1/visitor_id`, falling back to `/youtubei/v1/guide`.
     private func ensureVisitorData(region: String, completion: @escaping (String?) -> Void) {
         visitorLock.lock()
         let existing = cachedVisitorData
@@ -167,28 +230,26 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
             return
         }
 
-        let guidePayload: [String: Any] = [
+        let payload: [String: Any] = [
             "context": [
                 "client": [
-                    "clientName": "IOS",
-                    "clientVersion": "20.11.6",
-                    "deviceMake": "Apple",
-                    "deviceModel": "iPhone10,4",
-                    "osName": "iOS",
-                    "osVersion": "16.7.7.20H330",
+                    "clientName": "VISIONOS",
+                    "clientVersion": "1.02",
                     "hl": "vi",
                     "gl": region
                 ]
             ]
         ]
-        let guideHeaders = [
+        let headers = [
             "Content-Type": "application/json",
-            "User-Agent": "com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)",
-            "X-YouTube-Client-Name": "5",
-            "X-YouTube-Client-Version": "20.11.6"
+            "User-Agent": visionOSUserAgent,
+            "Origin": "https://www.youtube.com",
+            "Referer": "https://www.youtube.com/",
+            "X-YouTube-Client-Name": "101",
+            "X-YouTube-Client-Version": "1.02"
         ]
 
-        postInnertube(endpoint: "guide", payload: guidePayload, headers: guideHeaders) { [weak self] result in
+        postInnertube(endpoint: "visitor_id", payload: payload, headers: headers) { [weak self] result in
             if case .success(let dict) = result,
                let respCtx = dict["responseContext"] as? [String: Any],
                let vd = respCtx["visitorData"] as? String,
@@ -196,38 +257,27 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
                 self?.visitorLock.lock()
                 self?.cachedVisitorData = vd
                 self?.visitorLock.unlock()
-                AppLogger.shared.info("Fetched Innertube VISITOR_DATA")
+                AppLogger.shared.info("Fetched visitorData via /visitor_id")
                 completion(vd)
                 return
             }
 
-            // Fallback: extract visitorData from YouTube embed HTML page
-            guard let embedURL = URL(string: "https://www.youtube.com/") else {
-                completion(nil)
-                return
-            }
-            HTTPClient.shared.requestData(url: embedURL, timeout: 5.0) { htmlResult in
-                if case .success(let data) = htmlResult,
-                   let html = String(data: data, encoding: .utf8),
-                   let vd = self?.extractVisitorDataFromHTML(html) {
+            // Fallback to /youtubei/v1/guide
+            self?.postInnertube(endpoint: "guide", payload: payload, headers: headers) { guideResult in
+                if case .success(let dict) = guideResult,
+                   let respCtx = dict["responseContext"] as? [String: Any],
+                   let vd = respCtx["visitorData"] as? String,
+                   !vd.isEmpty {
                     self?.visitorLock.lock()
                     self?.cachedVisitorData = vd
                     self?.visitorLock.unlock()
+                    AppLogger.shared.info("Fetched visitorData via /guide")
                     completion(vd)
-                } else {
-                    completion(nil)
+                    return
                 }
+                completion(nil)
             }
         }
-    }
-
-    private func extractVisitorDataFromHTML(_ html: String) -> String? {
-        let marker = "\"visitorData\":\""
-        guard let r = html.range(of: marker) else { return nil }
-        let rest = html[r.upperBound...]
-        guard let end = rest.firstIndex(of: "\"") else { return nil }
-        let val = String(rest[..<end])
-        return val.isEmpty ? nil : val
     }
 
     // MARK: - Feed / Search / Channel
@@ -255,7 +305,7 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
         let payload: [String: Any] = [
             "context": webContext(region: region),
             "query": query,
-            "params": "EgIQAQ==" // Videos only filter
+            "params": "EgIQAQ=="
         ]
         postInnertube(endpoint: "search", payload: payload) { [weak self] result in
             guard let self = self else { return }
@@ -300,15 +350,19 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
         }
 
         let region = LocalStore.shared.settings.regionCode
-        let clients: [PlayerClientKind] = [.androidVR, .ios, .tvEmbedded]
-        attemptPlayerClient(
-            clients: clients,
-            index: 0,
-            videoId: cleanId,
-            region: region,
-            errors: [],
-            completion: completion
-        )
+        let clients: [PlayerClientKind] = [.visionOS, .webEmbedded, .mweb, .androidVR]
+
+        ensureVisitorData(region: region) { [weak self] visitorData in
+            self?.attemptPlayerClient(
+                clients: clients,
+                index: 0,
+                videoId: cleanId,
+                region: region,
+                visitorData: visitorData,
+                errors: [],
+                completion: completion
+            )
+        }
     }
 
     private func attemptPlayerClient(
@@ -316,6 +370,7 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
         index: Int,
         videoId: String,
         region: String,
+        visitorData: String?,
         errors: [String],
         completion: @escaping (Result<StreamInfo, Error>) -> Void
     ) {
@@ -326,66 +381,61 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
         }
 
         let client = clients[index]
-        let runCall: (String?) -> Void = { [weak self] visitorData in
+        let cfg = playerRequestConfig(for: client, videoId: videoId, region: region, visitorData: visitorData)
+
+        postInnertube(endpoint: "player", payload: cfg.payload, headers: cfg.headers) { [weak self] result in
             guard let self = self else { return }
-            let cfg = self.playerRequestConfig(for: client, videoId: videoId, region: region, visitorData: visitorData)
-            self.postInnertube(endpoint: "player", payload: cfg.payload, headers: cfg.headers) { result in
-                switch result {
-                case .success(let dict):
-                    switch self.parsePlayerDict(dict, videoId: videoId, client: client) {
-                    case .success(let partialInfo):
-                        self.fetchRelatedOnly(videoId: videoId, region: region) { related in
-                            let full = StreamInfo(
-                                video: partialInfo.video,
-                                hlsURL: partialInfo.hlsURL,
-                                progressiveStreams: partialInfo.progressiveStreams,
-                                audioOnlyStreams: partialInfo.audioOnlyStreams,
-                                relatedVideos: related,
-                                providerName: partialInfo.providerName,
-                                fetchedAt: Date()
-                            )
-                            completion(.success(full))
-                        }
-                    case .failure(let parseErr):
-                        let detail = "\(client.rawValue): \(parseErr.localizedDescription)"
-                        AppLogger.shared.warn("Innertube client failover -> \(detail)")
-                        self.attemptPlayerClient(
-                            clients: clients,
-                            index: index + 1,
-                            videoId: videoId,
-                            region: region,
-                            errors: errors + [detail],
-                            completion: completion
+            switch result {
+            case .success(let dict):
+                switch self.parsePlayerDict(dict, videoId: videoId, client: client, avHeaders: cfg.avPlayerHeaders) {
+                case .success(let partialInfo):
+                    self.fetchRelatedOnly(videoId: videoId, region: region) { related in
+                        let full = StreamInfo(
+                            video: partialInfo.video,
+                            hlsURL: partialInfo.hlsURL,
+                            progressiveStreams: partialInfo.progressiveStreams,
+                            audioOnlyStreams: partialInfo.audioOnlyStreams,
+                            relatedVideos: related,
+                            providerName: partialInfo.providerName,
+                            fetchedAt: Date(),
+                            httpHeaders: partialInfo.httpHeaders
                         )
+                        completion(.success(full))
                     }
-                case .failure(let err):
-                    let detail = "\(client.rawValue): \(err.localizedDescription)"
+                case .failure(let parseErr):
+                    let detail = "\(client.rawValue): \(parseErr.localizedDescription)"
                     AppLogger.shared.warn("Innertube client failover -> \(detail)")
                     self.attemptPlayerClient(
                         clients: clients,
                         index: index + 1,
                         videoId: videoId,
                         region: region,
+                        visitorData: visitorData,
                         errors: errors + [detail],
                         completion: completion
                     )
                 }
+            case .failure(let err):
+                let detail = "\(client.rawValue): \(err.localizedDescription)"
+                AppLogger.shared.warn("Innertube client failover -> \(detail)")
+                self.attemptPlayerClient(
+                    clients: clients,
+                    index: index + 1,
+                    videoId: videoId,
+                    region: region,
+                    visitorData: visitorData,
+                    errors: errors + [detail],
+                    completion: completion
+                )
             }
-        }
-
-        if client == .ios {
-            ensureVisitorData(region: region) { vd in
-                runCall(vd)
-            }
-        } else {
-            runCall(nil)
         }
     }
 
     private func parsePlayerDict(
         _ dict: [String: Any],
         videoId: String,
-        client: PlayerClientKind
+        client: PlayerClientKind,
+        avHeaders: [String: String]
     ) -> Result<StreamInfo, Error> {
         if let playability = dict["playabilityStatus"] as? [String: Any] {
             let status = (playability["status"] as? String) ?? "UNKNOWN"
@@ -423,13 +473,13 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
             descriptionText: desc
         )
 
+        // Master .m3u8 (supports both VOD & Livestream without JS cipher or PO Token)
         let hlsStr = (streamingData["hlsManifestUrl"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hlsURL = hlsStr.flatMap { $0.isEmpty ? nil : URL(string: $0) }
 
         var progressive: [VideoStreamOption] = []
         if let formats = streamingData["formats"] as? [[String: Any]] {
             for f in formats {
-                // Skip encrypted signatureCipher entries that have no direct url
                 guard let urlStr = f["url"] as? String, !urlStr.isEmpty, let url = URL(string: urlStr) else {
                     continue
                 }
@@ -459,16 +509,17 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
         var audioOnly: [VideoStreamOption] = []
         if let adaptive = streamingData["adaptiveFormats"] as? [[String: Any]] {
             for f in adaptive {
-                let mime = ((f["mimeType"] as? String) ?? "").lowercased()
-                guard mime.contains("audio/mp4") || mime.contains("mp4a") else { continue }
-                guard let urlStr = f["url"] as? String, !urlStr.isEmpty, let url = URL(string: urlStr) else { continue }
                 let itag = f["itag"] as? Int
-                let bitrate = (f["bitrate"] as? Int) ?? 128_000
+                let mime = ((f["mimeType"] as? String) ?? "").lowercased()
+                let isAudioItag = (itag == 140 || itag == 139)
+                guard isAudioItag || mime.contains("audio/mp4") || mime.contains("mp4a") else { continue }
+                guard let urlStr = f["url"] as? String, !urlStr.isEmpty, let url = URL(string: urlStr) else { continue }
+                let bitrate = (f["bitrate"] as? Int) ?? (itag == 139 ? 48_000 : 128_000)
                 audioOnly.append(VideoStreamOption(
                     url: url,
                     itag: itag,
                     mimeType: mime,
-                    qualityLabel: "Audio M4A",
+                    qualityLabel: itag == 139 ? "48kbps M4A" : "Audio M4A",
                     height: 0,
                     bitrate: bitrate,
                     isHLS: false,
@@ -489,7 +540,8 @@ final class InnertubeProvider: YouTubeDataSourceProtocol {
             audioOnlyStreams: audioOnly,
             relatedVideos: [],
             providerName: "Innertube (\(client.rawValue))",
-            fetchedAt: Date()
+            fetchedAt: Date(),
+            httpHeaders: avHeaders
         ))
     }
 

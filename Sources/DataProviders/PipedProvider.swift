@@ -249,11 +249,12 @@ final class PipedProvider: YouTubeDataSourceProtocol {
                 let codec = s["codec"] as? String
                 let format = (s["format"] as? String) ?? ""
                 let combined = (mime + " " + format + " " + (codec ?? "")).lowercased()
-                guard combined.contains("m4a") || combined.contains("mp4a") || combined.contains("mp4") else {
+                let itag = s["itag"] as? Int
+                let isAudioItag = (itag == 140 || itag == 139)
+                guard isAudioItag || combined.contains("m4a") || combined.contains("mp4a") || combined.contains("mp4") else {
                     continue
                 }
-                let bitrate = (s["bitrate"] as? Int) ?? 128_000
-                let itag = s["itag"] as? Int
+                let bitrate = (s["bitrate"] as? Int) ?? (itag == 139 ? 48_000 : 128_000)
                 audioOnly.append(VideoStreamOption(
                     url: url,
                     itag: itag,

@@ -31,11 +31,9 @@ struct AppSettings: Codable, Equatable {
     var remoteConfigURL: String
     var instancesVersion: Int?
 
-    static let currentInstancesVersion = 2
+    static let currentInstancesVersion = 3
 
     static let defaultPipedInstances: [String] = [
-        "https://pipedapi.kavin.rocks",
-        "https://pipedapi.leptons.xyz",
         "https://pipedapi.nosebs.ru",
         "https://pipedapi.adminforge.de",
         "https://pipedapi.drgns.space",

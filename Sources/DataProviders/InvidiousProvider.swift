@@ -233,10 +233,11 @@ final class InvidiousProvider: YouTubeDataSourceProtocol {
         if let adaptive = dict["adaptiveFormats"] as? [[String: Any]] {
             for f in adaptive {
                 let typeStr = ((f["type"] as? String) ?? "").lowercased()
-                guard typeStr.contains("audio/mp4") || typeStr.contains("mp4a") else { continue }
-                guard let url = resolveURL(f["url"] as? String, base: base) else { continue }
                 let itag = (f["itag"] as? Int) ?? Int((f["itag"] as? String) ?? "")
-                let bitrate = Int((f["bitrate"] as? String) ?? "") ?? 128_000
+                let isAudioItag = (itag == 140 || itag == 139)
+                guard isAudioItag || typeStr.contains("audio/mp4") || typeStr.contains("mp4a") else { continue }
+                guard let url = resolveURL(f["url"] as? String, base: base) else { continue }
+                let bitrate = Int((f["bitrate"] as? String) ?? "") ?? (itag == 139 ? 48_000 : 128_000)
                 audioOnly.append(VideoStreamOption(
                     url: url,
                     itag: itag,
