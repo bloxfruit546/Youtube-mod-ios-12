@@ -7,6 +7,7 @@ enum DataProviderError: LocalizedError {
     case rateLimited
     case decodingError(String)
     case noPlayableH264Stream
+    case providerDetail(provider: String, detail: String)
     case allProvidersFailed([String])
 
     var errorDescription: String? {
@@ -16,15 +17,17 @@ enum DataProviderError: LocalizedError {
         case .networkError(let msg):
             return "Lỗi mạng: \(msg)"
         case .httpStatus(let code):
-            return "Máy chủ trả về mã lỗi HTTP \(code)."
+            return "HTTP \(code)"
         case .rateLimited:
-            return "Máy chủ giới hạn tần suất (HTTP 429)."
+            return "HTTP 429 (Rate Limit)"
         case .decodingError(let msg):
-            return "Lỗi đọc dữ liệu: \(msg)"
+            return "DecodingError: \(msg)"
         case .noPlayableH264Stream:
-            return "Không tìm thấy luồng H.264/HLS tương thích phần cứng Apple A7."
+            return "Không có luồng H.264/HLS tương thích A7"
+        case .providerDetail(let provider, let detail):
+            return "\(provider): \(detail)"
         case .allProvidersFailed(let details):
-            return "Tất cả nguồn dữ liệu đều lỗi:\n" + details.joined(separator: "\n")
+            return details.joined(separator: " | ")
         }
     }
 }
@@ -53,34 +56,60 @@ enum VideoFilter {
 }
 
 enum YouTubeParsing {
+    /// Extracts a clean 11-character YouTube video ID from raw IDs, `/watch?v=...`, `youtu.be/...`, `/shorts/...`, etc.
+    static func extractCleanVideoId(_ raw: String) -> String {
+        var str = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !str.isEmpty else { return "" }
+
+        if let hashIdx = str.firstIndex(of: "#") {
+            str = String(str[..<hashIdx])
+        }
+
+        // Handle query parameter `v=` (e.g. `/watch?v=XXXXXXXXXXX&list=...` or `https://youtube.com/watch?v=...`)
+        if let vRange = str.range(of: "v=") {
+            let afterV = String(str[vRange.upperBound...])
+            let clean = afterV.components(separatedBy: CharacterSet(charactersIn: "&/?#")).first ?? ""
+            if clean.count == 11 {
+                return clean
+            }
+            if !clean.isEmpty {
+                return String(clean.prefix(11))
+            }
+        }
+
+        // Handle path-based URLs: `youtu.be/ID`, `/shorts/ID`, `/embed/ID`, `/live/ID`, `/watch/ID`
+        for marker in ["youtu.be/", "/shorts/", "/embed/", "/live/", "/watch/", "/v/"] {
+            if let range = str.range(of: marker) {
+                let after = String(str[range.upperBound...])
+                let clean = after.components(separatedBy: CharacterSet(charactersIn: "?&/#")).first ?? ""
+                if !clean.isEmpty {
+                    return clean.count >= 11 ? String(clean.prefix(11)) : clean
+                }
+            }
+        }
+
+        // Strip any trailing query string if already an ID
+        let stripped = str.components(separatedBy: CharacterSet(charactersIn: "?&/#")).first ?? str
+        if stripped.count == 11 {
+            return stripped
+        }
+        return stripped
+    }
+
     static func extractVideoId(from urlOrPath: String?) -> String? {
         guard let str = urlOrPath, !str.isEmpty else { return nil }
-        if str.count == 11 && !str.contains("/") && !str.contains("?") {
-            return str
-        }
-        if let range = str.range(of: "v=") {
-            let sub = String(str[range.upperBound...])
-            return sub.components(separatedBy: "&").first
-        }
-        if let range = str.range(of: "/watch/") {
-            let sub = String(str[range.upperBound...])
-            return sub.components(separatedBy: "?").first
-        }
-        if let range = str.range(of: "youtu.be/") {
-            let sub = String(str[range.upperBound...])
-            return sub.components(separatedBy: "?").first
-        }
-        return nil
+        let clean = extractCleanVideoId(str)
+        return clean.isEmpty ? nil : clean
     }
 
     static func extractChannelId(from urlOrPath: String?) -> String? {
         guard let str = urlOrPath, !str.isEmpty else { return nil }
-        if str.hasPrefix("UC") && !str.contains("/") {
+        if str.hasPrefix("UC") && !str.contains("/") && !str.contains("?") {
             return str
         }
         if let range = str.range(of: "/channel/") {
             let sub = String(str[range.upperBound...])
-            return sub.components(separatedBy: "/").first?.components(separatedBy: "?").first
+            return sub.components(separatedBy: CharacterSet(charactersIn: "/?&")).first
         }
         return str.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }

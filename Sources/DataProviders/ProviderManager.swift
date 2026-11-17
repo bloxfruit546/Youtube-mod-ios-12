@@ -27,13 +27,21 @@ final class ProviderManager: YouTubeDataSourceProtocol {
     private func executeWithFailover<T>(
         index: Int = 0,
         providers: [YouTubeDataSourceProtocol],
+        contextTag: String? = nil,
         errors: [String] = [],
         operation: @escaping (YouTubeDataSourceProtocol, @escaping (Result<T, Error>) -> Void) -> Void,
         completion: @escaping (Result<T, Error>) -> Void
     ) {
         guard index < providers.count else {
+            let formatted: [String]
+            if let tag = contextTag, !tag.isEmpty {
+                formatted = ["[\(tag)] " + errors.joined(separator: " | ")]
+            } else {
+                formatted = errors
+            }
+            AppLogger.shared.error("All providers failed: \(formatted.joined(separator: " | "))")
             DispatchQueue.main.async {
-                completion(.failure(DataProviderError.allProvidersFailed(errors)))
+                completion(.failure(DataProviderError.allProvidersFailed(formatted)))
             }
             return
         }
@@ -47,11 +55,13 @@ final class ProviderManager: YouTubeDataSourceProtocol {
                     completion(.success(value))
                 }
             case .failure(let err):
-                let msg = "[\(current.providerName)] \(err.localizedDescription)"
+                let desc = err.localizedDescription
+                let msg = desc.hasPrefix("\(current.providerName):") ? desc : "\(current.providerName): \(desc)"
                 AppLogger.shared.warn("Provider failover -> \(msg)")
                 self.executeWithFailover(
                     index: index + 1,
                     providers: providers,
+                    contextTag: contextTag,
                     errors: errors + [msg],
                     operation: operation,
                     completion: completion
@@ -83,8 +93,12 @@ final class ProviderManager: YouTubeDataSourceProtocol {
     }
 
     func fetchVideoDetailsAndStreams(videoId: String, completion: @escaping (Result<StreamInfo, Error>) -> Void) {
-        executeWithFailover(providers: orderedProviders, operation: { provider, cb in
-            provider.fetchVideoDetailsAndStreams(videoId: videoId, completion: cb)
+        let cleanId = YouTubeParsing.extractCleanVideoId(videoId)
+        // Always prioritize direct Innertube (ANDROID_VR -> IOS -> TVHTML5) on residential IP first,
+        // then fall back to public Piped and Invidious instances.
+        let streamOrder: [YouTubeDataSourceProtocol] = [innertube, piped, invidious]
+        executeWithFailover(providers: streamOrder, contextTag: "ID: \(cleanId)", operation: { provider, cb in
+            provider.fetchVideoDetailsAndStreams(videoId: cleanId, completion: cb)
         }, completion: completion)
     }
 

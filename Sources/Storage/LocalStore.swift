@@ -29,19 +29,23 @@ struct AppSettings: Codable, Equatable {
     var pipedInstances: [String]
     var invidiousInstances: [String]
     var remoteConfigURL: String
+    var instancesVersion: Int?
+
+    static let currentInstancesVersion = 2
 
     static let defaultPipedInstances: [String] = [
         "https://pipedapi.kavin.rocks",
-        "https://pipedapi.tokhmi.xyz",
+        "https://pipedapi.leptons.xyz",
+        "https://pipedapi.nosebs.ru",
         "https://pipedapi.adminforge.de",
-        "https://api.piped.private.coffee",
-        "https://pipedapi.smnz.de"
+        "https://pipedapi.drgns.space",
+        "https://api.piped.private.coffee"
     ]
 
     static let defaultInvidiousInstances: [String] = [
         "https://inv.nadeko.net",
-        "https://invidious.nerdvpn.de",
         "https://yewtu.be",
+        "https://invidious.nerdvpn.de",
         "https://iv.datura.network"
     ]
 
@@ -53,7 +57,8 @@ struct AppSettings: Codable, Equatable {
             preferredProvider: .autoPipedFirst,
             pipedInstances: defaultPipedInstances,
             invidiousInstances: defaultInvidiousInstances,
-            remoteConfigURL: ""
+            remoteConfigURL: "",
+            instancesVersion: currentInstancesVersion
         )
     }
 }
@@ -111,6 +116,12 @@ final class LocalStore {
                 playlistsCache = [PlaylistItem(id: "watch_later", title: "Xem sau", videos: [])]
             }
             settingsCache = readJSON(AppSettings.self, from: settingsURL) ?? .default
+            if (settingsCache.instancesVersion ?? 0) < AppSettings.currentInstancesVersion {
+                settingsCache.pipedInstances = AppSettings.defaultPipedInstances
+                settingsCache.invidiousInstances = AppSettings.defaultInvidiousInstances
+                settingsCache.instancesVersion = AppSettings.currentInstancesVersion
+                writeAtomic(settingsCache, to: settingsURL)
+            }
             searchHistoryCache = readJSON([String].self, from: searchHistoryURL) ?? []
         }
     }

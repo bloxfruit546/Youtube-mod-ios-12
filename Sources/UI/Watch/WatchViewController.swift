@@ -270,9 +270,11 @@ final class WatchViewController: UIViewController {
         playerContainerView.addSubview(spinner)
 
         errorOverlayLabel.textColor = .white
-        errorOverlayLabel.font = UIFont.systemFont(ofSize: 12)
+        errorOverlayLabel.font = UIFont.systemFont(ofSize: 10.5)
         errorOverlayLabel.textAlignment = .center
-        errorOverlayLabel.numberOfLines = 3
+        errorOverlayLabel.numberOfLines = 0
+        errorOverlayLabel.adjustsFontSizeToFitWidth = true
+        errorOverlayLabel.minimumScaleFactor = 0.75
         errorOverlayLabel.isHidden = true
         playerContainerView.addSubview(errorOverlayLabel)
 
@@ -332,7 +334,7 @@ final class WatchViewController: UIViewController {
         infoHeaderView.addSubview(videoMetaLabel)
 
         providerLabel.font = UIFont.systemFont(ofSize: 11.5)
-        providerLabel.numberOfLines = 1
+        providerLabel.numberOfLines = 0
         providerLabel.isOpaque = true
         infoHeaderView.addSubview(providerLabel)
 
@@ -481,8 +483,8 @@ final class WatchViewController: UIViewController {
         forwardButton.frame = CGRect(x: centerPlayPauseButton.frame.maxX + 16, y: (ch - 40) * 0.5, width: 50, height: 40)
 
         spinner.center = CGPoint(x: cw * 0.5, y: ch * 0.5)
-        errorOverlayLabel.frame = CGRect(x: 16, y: ch * 0.25, width: cw - 32, height: 60)
-        retryPlayerButton.frame = CGRect(x: (cw - 100) * 0.5, y: errorOverlayLabel.frame.maxY + 8, width: 100, height: 32)
+        errorOverlayLabel.frame = CGRect(x: 10, y: 12, width: max(60, cw - 20), height: max(40, ch - 56))
+        retryPlayerButton.frame = CGRect(x: (cw - 100) * 0.5, y: ch - 40, width: 100, height: 30)
 
         let bottomY = ch - 34
         elapsedLabel.frame = CGRect(x: 8, y: bottomY, width: 46, height: 26)
@@ -508,7 +510,7 @@ final class WatchViewController: UIViewController {
         videoMetaLabel.frame = CGRect(x: pad, y: y, width: contentW, height: 16)
         y = videoMetaLabel.frame.maxY + 4
 
-        providerLabel.frame = CGRect(x: pad, y: y, width: contentW, height: 15)
+        providerLabel.frame = CGRect(x: pad, y: y, width: contentW, height: max(15, ceil(providerLabel.sizeThatFits(CGSize(width: contentW, height: 160)).height)))
         y = providerLabel.frame.maxY + 6
 
         toggleDescButton.frame = CGRect(x: pad, y: y, width: 140, height: 24)
@@ -635,7 +637,9 @@ final class WatchViewController: UIViewController {
             spinner.stopAnimating()
             centerPlayPauseButton.isHidden = true
             errorOverlayLabel.isHidden = false
-            errorOverlayLabel.text = msg
+            errorOverlayLabel.text = "Không phát được video\n\(msg)"
+            providerLabel.text = "Lỗi chi tiết: \(msg)"
+            layoutInfoHeader(forWidth: view.bounds.width)
             retryPlayerButton.isHidden = false
         }
         refreshAudioOnlyVisuals()

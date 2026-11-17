@@ -10,8 +10,6 @@ final class PipedProvider: YouTubeDataSourceProtocol {
         return list.isEmpty ? AppSettings.defaultPipedInstances : list
     }
 
-    // MARK: - Instance Failover Helper
-
     private func requestAcrossInstances(
         pathAndQuery: String,
         index: Int = 0,
@@ -20,13 +18,15 @@ final class PipedProvider: YouTubeDataSourceProtocol {
     ) {
         let list = instances
         guard index < list.count else {
-            completion(.failure(DataProviderError.allProvidersFailed(errors)))
+            let summary = errors.prefix(2).joined(separator: "; ")
+            completion(.failure(DataProviderError.providerDetail(provider: providerName, detail: summary.isEmpty ? "Không phản hồi" : summary)))
             return
         }
 
         let base = list[index]
         guard let url = URL(string: base + pathAndQuery) else {
-            requestAcrossInstances(pathAndQuery: pathAndQuery, index: index + 1, errors: errors + ["\(base): URL sai"], completion: completion)
+            let host = URL(string: base)?.host ?? base
+            requestAcrossInstances(pathAndQuery: pathAndQuery, index: index + 1, errors: errors + ["\(host): URL sai"], completion: completion)
             return
         }
 
@@ -36,8 +36,9 @@ final class PipedProvider: YouTubeDataSourceProtocol {
             case .success(let json):
                 completion(.success((base, json)))
             case .failure(let err):
-                let detail = "Piped[\(base)]: \(err.localizedDescription)"
-                AppLogger.shared.warn("Failover \(detail)")
+                let host = url.host ?? base
+                let detail = "\(host): \(err.localizedDescription)"
+                AppLogger.shared.warn("Failover Piped[\(detail)]")
                 self.requestAcrossInstances(
                     pathAndQuery: pathAndQuery,
                     index: index + 1,
@@ -46,6 +47,14 @@ final class PipedProvider: YouTubeDataSourceProtocol {
                 )
             }
         }
+    }
+
+    private func resolveURL(_ raw: String?, base: String) -> URL? {
+        guard let s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
+        if let baseURL = URL(string: base), let resolved = URL(string: s, relativeTo: baseURL)?.absoluteURL {
+            return resolved
+        }
+        return URL(string: s)
     }
 
     // MARK: - YouTubeDataSourceProtocol
@@ -102,132 +111,184 @@ final class PipedProvider: YouTubeDataSourceProtocol {
     }
 
     func fetchVideoDetailsAndStreams(videoId: String, completion: @escaping (Result<StreamInfo, Error>) -> Void) {
-        let safeId = videoId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? videoId
-        requestAcrossInstances(pathAndQuery: "/streams/\(safeId)") { [weak self] result in
+        let cleanId = YouTubeParsing.extractCleanVideoId(videoId)
+        guard !cleanId.isEmpty else {
+            completion(.failure(DataProviderError.providerDetail(provider: providerName, detail: "Video ID rỗng")))
+            return
+        }
+        let safeId = cleanId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? cleanId
+        let list = instances
+        fetchStreamsAcrossInstances(instances: list, index: 0, safeId: safeId, cleanId: cleanId, errors: [], completion: completion)
+    }
+
+    private func fetchStreamsAcrossInstances(
+        instances: [String],
+        index: Int,
+        safeId: String,
+        cleanId: String,
+        errors: [String],
+        completion: @escaping (Result<StreamInfo, Error>) -> Void
+    ) {
+        guard index < instances.count else {
+            let summary = errors.prefix(2).joined(separator: "; ")
+            completion(.failure(DataProviderError.providerDetail(provider: providerName, detail: summary.isEmpty ? "Không phản hồi" : summary)))
+            return
+        }
+
+        let base = instances[index]
+        let host = URL(string: base)?.host ?? base
+        guard let url = URL(string: "\(base)/streams/\(safeId)") else {
+            fetchStreamsAcrossInstances(instances: instances, index: index + 1, safeId: safeId, cleanId: cleanId, errors: errors + ["\(host): URL sai"], completion: completion)
+            return
+        }
+
+        HTTPClient.shared.requestJSONObject(url: url, timeout: 6.0) { [weak self] result in
             guard let self = self else { return }
             switch result {
-            case .success((let base, let json)):
+            case .success(let json):
                 guard let dict = json as? [String: Any] else {
-                    completion(.failure(DataProviderError.decodingError("Piped stream không hợp lệ")))
+                    let msg = "\(host): JSON không hợp lệ"
+                    self.fetchStreamsAcrossInstances(instances: instances, index: index + 1, safeId: safeId, cleanId: cleanId, errors: errors + [msg], completion: completion)
                     return
                 }
-                if let errStr = dict["error"] as? String {
-                    completion(.failure(DataProviderError.networkError("Piped[\(base)]: \(errStr)")))
+                if let errStr = (dict["error"] as? String) ?? (dict["message"] as? String), !errStr.isEmpty {
+                    let msg = "\(host): \(errStr)"
+                    AppLogger.shared.warn("Failover Piped[\(msg)]")
+                    self.fetchStreamsAcrossInstances(instances: instances, index: index + 1, safeId: safeId, cleanId: cleanId, errors: errors + [msg], completion: completion)
                     return
                 }
 
-                let title = (dict["title"] as? String) ?? "Không có tiêu đề"
-                let uploader = (dict["uploader"] as? String) ?? ""
-                let uploaderUrl = dict["uploaderUrl"] as? String
-                let channelId = YouTubeParsing.extractChannelId(from: uploaderUrl) ?? ""
-                let avatarURL = (dict["uploaderAvatar"] as? String).flatMap { URL(string: $0) }
-                let duration = (dict["duration"] as? Int) ?? 0
-                let views = YouTubeParsing.parseInt64(dict["views"])
-                let uploadDate = (dict["uploadDate"] as? String) ?? ""
-                let isLive = (dict["livestream"] as? Bool) ?? false
-                let desc = dict["description"] as? String
-
-                let video = VideoItem(
-                    id: videoId,
-                    title: title,
-                    channelId: channelId,
-                    channelName: uploader,
-                    channelAvatarURL: avatarURL,
-                    thumbnailURL: VideoItem.defaultThumbnailURL(for: videoId),
-                    durationSeconds: duration,
-                    viewCount: views,
-                    uploadedText: uploadDate,
-                    isLive: isLive,
-                    isShort: false,
-                    descriptionText: desc
-                )
-
-                let hlsURL = (dict["hls"] as? String).flatMap { URL(string: $0) }
-
-                var progressive: [VideoStreamOption] = []
-                if let vStreams = dict["videoStreams"] as? [[String: Any]] {
-                    for s in vStreams {
-                        let videoOnly = (s["videoOnly"] as? Bool) ?? true
-                        if videoOnly { continue } // Strictly skip DASH video-only streams
-                        guard let urlStr = s["url"] as? String, let url = URL(string: urlStr) else { continue }
-                        let mime = (s["mimeType"] as? String) ?? ""
-                        let codec = s["codec"] as? String
-                        let format = (s["format"] as? String) ?? ""
-                        guard VideoStreamOption.isHardwareCompatible(mimeType: mime + " " + format, codec: codec) else {
-                            continue
-                        }
-                        let qualityLabel = (s["quality"] as? String) ?? ""
-                        let height = (s["height"] as? Int) ?? YouTubeParsing.parseHeight(from: qualityLabel)
-                        let bitrate = (s["bitrate"] as? Int) ?? 0
-                        let itag = s["itag"] as? Int
-                        progressive.append(VideoStreamOption(
-                            url: url,
-                            itag: itag,
-                            mimeType: mime,
-                            qualityLabel: qualityLabel,
-                            height: height,
-                            bitrate: bitrate,
-                            isHLS: false,
-                            isAudioOnly: false,
-                            isH264: true
-                        ))
-                    }
+                if let info = self.parseStreamInfo(dict: dict, base: base, cleanId: cleanId) {
+                    completion(.success(info))
+                } else {
+                    let msg = "\(host): Không có luồng H.264/HLS"
+                    AppLogger.shared.warn("Failover Piped[\(msg)]")
+                    self.fetchStreamsAcrossInstances(instances: instances, index: index + 1, safeId: safeId, cleanId: cleanId, errors: errors + [msg], completion: completion)
                 }
-
-                var audioOnly: [VideoStreamOption] = []
-                if let aStreams = dict["audioStreams"] as? [[String: Any]] {
-                    for s in aStreams {
-                        guard let urlStr = s["url"] as? String, let url = URL(string: urlStr) else { continue }
-                        let mime = (s["mimeType"] as? String) ?? ""
-                        let codec = s["codec"] as? String
-                        let format = (s["format"] as? String) ?? ""
-                        let combined = (mime + " " + format + " " + (codec ?? "")).lowercased()
-                        // Only AAC / M4A (exclude Opus/WebM for maximum iOS 12 AVPlayer reliability)
-                        guard combined.contains("m4a") || combined.contains("mp4a") || combined.contains("mp4") else {
-                            continue
-                        }
-                        let bitrate = (s["bitrate"] as? Int) ?? 128_000
-                        let itag = s["itag"] as? Int
-                        audioOnly.append(VideoStreamOption(
-                            url: url,
-                            itag: itag,
-                            mimeType: mime,
-                            qualityLabel: (s["quality"] as? String) ?? "128kbps M4A",
-                            height: 0,
-                            bitrate: bitrate,
-                            isHLS: false,
-                            isAudioOnly: true,
-                            isH264: true
-                        ))
-                    }
-                }
-
-                let relatedRaw = (dict["relatedStreams"] as? [[String: Any]]) ?? []
-                let related = VideoFilter.filterOutShorts(relatedRaw.compactMap { self.parseStreamSummary($0) })
-
-                let info = StreamInfo(
-                    video: video,
-                    hlsURL: hlsURL,
-                    progressiveStreams: progressive,
-                    audioOnlyStreams: audioOnly,
-                    relatedVideos: related,
-                    providerName: "Piped (\(URL(string: base)?.host ?? base))",
-                    fetchedAt: Date()
-                )
-
-                if info.hlsURL == nil && info.progressiveStreams.isEmpty {
-                    completion(.failure(DataProviderError.noPlayableH264Stream))
-                    return
-                }
-                completion(.success(info))
-            case .failure(let error):
-                completion(.failure(error))
+            case .failure(let err):
+                let msg = "\(host): \(err.localizedDescription)"
+                AppLogger.shared.warn("Failover Piped[\(msg)]")
+                self.fetchStreamsAcrossInstances(instances: instances, index: index + 1, safeId: safeId, cleanId: cleanId, errors: errors + [msg], completion: completion)
             }
         }
     }
 
+    private func parseStreamInfo(dict: [String: Any], base: String, cleanId: String) -> StreamInfo? {
+        let title = (dict["title"] as? String) ?? "Không có tiêu đề"
+        let uploader = (dict["uploader"] as? String) ?? ""
+        let uploaderUrl = dict["uploaderUrl"] as? String
+        let channelId = YouTubeParsing.extractChannelId(from: uploaderUrl) ?? ""
+        let avatarURL = resolveURL(dict["uploaderAvatar"] as? String, base: base)
+        let duration = (dict["duration"] as? Int) ?? 0
+        let views = YouTubeParsing.parseInt64(dict["views"])
+        let uploadDate = (dict["uploadDate"] as? String) ?? ""
+        let isLive = (dict["livestream"] as? Bool) ?? false
+        let desc = dict["description"] as? String
+
+        let video = VideoItem(
+            id: cleanId,
+            title: title,
+            channelId: channelId,
+            channelName: uploader,
+            channelAvatarURL: avatarURL,
+            thumbnailURL: VideoItem.defaultThumbnailURL(for: cleanId),
+            durationSeconds: duration,
+            viewCount: views,
+            uploadedText: uploadDate,
+            isLive: isLive,
+            isShort: false,
+            descriptionText: desc
+        )
+
+        let hlsURL = resolveURL(dict["hls"] as? String, base: base)
+
+        var progressive: [VideoStreamOption] = []
+        if let vStreams = dict["videoStreams"] as? [[String: Any]] {
+            for s in vStreams {
+                let itag = s["itag"] as? Int
+                let videoOnlyOpt = s["videoOnly"] as? Bool
+                if videoOnlyOpt == true {
+                    continue
+                }
+                if videoOnlyOpt == nil && itag != 18 && itag != 22 {
+                    continue
+                }
+                guard let url = resolveURL(s["url"] as? String, base: base) else { continue }
+                let mime = (s["mimeType"] as? String) ?? ""
+                let codec = s["codec"] as? String
+                let format = (s["format"] as? String) ?? ""
+                let combined = (mime + " " + format + " " + (codec ?? "")).lowercased()
+
+                let isExplicitH264 = combined.contains("avc1") || combined.contains("mpeg_4") || combined.contains("mp4") || itag == 18 || itag == 22
+                guard isExplicitH264 && VideoStreamOption.isHardwareCompatible(mimeType: mime + " " + format, codec: codec) else {
+                    continue
+                }
+
+                let qualityLabel = (s["quality"] as? String) ?? ""
+                let height = (s["height"] as? Int) ?? YouTubeParsing.parseHeight(from: qualityLabel)
+                let bitrate = (s["bitrate"] as? Int) ?? 0
+                progressive.append(VideoStreamOption(
+                    url: url,
+                    itag: itag,
+                    mimeType: mime,
+                    qualityLabel: qualityLabel,
+                    height: height,
+                    bitrate: bitrate,
+                    isHLS: false,
+                    isAudioOnly: false,
+                    isH264: true
+                ))
+            }
+        }
+
+        var audioOnly: [VideoStreamOption] = []
+        if let aStreams = dict["audioStreams"] as? [[String: Any]] {
+            for s in aStreams {
+                guard let url = resolveURL(s["url"] as? String, base: base) else { continue }
+                let mime = (s["mimeType"] as? String) ?? ""
+                let codec = s["codec"] as? String
+                let format = (s["format"] as? String) ?? ""
+                let combined = (mime + " " + format + " " + (codec ?? "")).lowercased()
+                guard combined.contains("m4a") || combined.contains("mp4a") || combined.contains("mp4") else {
+                    continue
+                }
+                let bitrate = (s["bitrate"] as? Int) ?? 128_000
+                let itag = s["itag"] as? Int
+                audioOnly.append(VideoStreamOption(
+                    url: url,
+                    itag: itag,
+                    mimeType: mime,
+                    qualityLabel: (s["quality"] as? String) ?? "128kbps M4A",
+                    height: 0,
+                    bitrate: bitrate,
+                    isHLS: false,
+                    isAudioOnly: true,
+                    isH264: true
+                ))
+            }
+        }
+
+        let relatedRaw = (dict["relatedStreams"] as? [[String: Any]]) ?? []
+        let related = VideoFilter.filterOutShorts(relatedRaw.compactMap { self.parseStreamSummary($0) })
+
+        guard hlsURL != nil || !progressive.isEmpty else {
+            return nil
+        }
+
+        return StreamInfo(
+            video: video,
+            hlsURL: hlsURL,
+            progressiveStreams: progressive,
+            audioOnlyStreams: audioOnly,
+            relatedVideos: related,
+            providerName: "Piped (\(URL(string: base)?.host ?? base))",
+            fetchedAt: Date()
+        )
+    }
+
     func fetchComments(videoId: String, completion: @escaping (Result<[CommentItem], Error>) -> Void) {
-        let safeId = videoId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? videoId
+        let cleanId = YouTubeParsing.extractCleanVideoId(videoId)
+        let safeId = cleanId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? cleanId
         requestAcrossInstances(pathAndQuery: "/comments/\(safeId)") { result in
             switch result {
             case .success((_, let json)):
@@ -270,15 +331,15 @@ final class PipedProvider: YouTubeDataSourceProtocol {
         requestAcrossInstances(pathAndQuery: "/channel/\(safeId)") { [weak self] result in
             guard let self = self else { return }
             switch result {
-            case .success((_, let json)):
+            case .success((let base, let json)):
                 guard let dict = json as? [String: Any] else {
                     completion(.failure(DataProviderError.decodingError("Piped channel không hợp lệ")))
                     return
                 }
                 let id = (dict["id"] as? String) ?? channelId
                 let name = (dict["name"] as? String) ?? "Kênh YouTube"
-                let avatar = (dict["avatarUrl"] as? String).flatMap { URL(string: $0) }
-                let banner = (dict["bannerUrl"] as? String).flatMap { URL(string: $0) }
+                let avatar = self.resolveURL(dict["avatarUrl"] as? String, base: base)
+                let banner = self.resolveURL(dict["bannerUrl"] as? String, base: base)
                 let subsCount = YouTubeParsing.parseInt64(dict["subscriberCount"])
                 let subsText = subsCount > 0 ? "\(subsCount) người đăng ký" : ""
                 let desc = (dict["description"] as? String) ?? ""
@@ -313,11 +374,12 @@ final class PipedProvider: YouTubeDataSourceProtocol {
         if let type = dict["type"] as? String, type != "stream" {
             return nil
         }
-        let urlPath = dict["url"] as? String
-        guard let videoId = YouTubeParsing.extractVideoId(from: urlPath), !videoId.isEmpty else {
+        let rawUrlOrId = (dict["url"] as? String) ?? (dict["id"] as? String) ?? ""
+        let videoId = YouTubeParsing.extractCleanVideoId(rawUrlOrId)
+        guard !videoId.isEmpty else {
             return nil
         }
-        let isShort = (dict["isShort"] as? Bool) ?? (urlPath?.contains("/shorts/") ?? false)
+        let isShort = (dict["isShort"] as? Bool) ?? rawUrlOrId.contains("/shorts/")
         let title = (dict["title"] as? String) ?? ""
         let chName = (dict["uploaderName"] as? String) ?? fallbackChannelName
         let chId = YouTubeParsing.extractChannelId(from: dict["uploaderUrl"] as? String) ?? fallbackChannelId
