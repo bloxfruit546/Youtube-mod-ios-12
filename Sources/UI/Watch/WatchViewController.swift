@@ -455,6 +455,9 @@ final class WatchViewController: UIViewController {
         channelNameLabel.backgroundColor = p.background
         channelNameLabel.textColor = p.primaryText
         segmentControl.tintColor = p.accent
+        segmentControl.backgroundColor = p.secondaryBackground
+        segmentControl.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
+        segmentControl.setTitleTextAttributes([.foregroundColor: p.primaryText], for: .normal)
 
         refreshAudioOnlyVisuals()
         refreshChannelSubscribeState()

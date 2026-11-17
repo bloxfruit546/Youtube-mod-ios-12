@@ -27,7 +27,7 @@ targets:
       - path: Sources
     resources:
       - path: Resources/Assets.xcassets
-      - path: Resources/Default-568h@2x.png
+      - path: Resources/LaunchScreen.storyboard
     settings:
       base:
         PRODUCT_NAME: LiteTube5s
