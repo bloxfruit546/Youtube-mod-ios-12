@@ -20,6 +20,10 @@ jobs:
           brew update
           brew install xcodegen ldid dpkg
 
+      - name: Generate App Icons (24-bit RGB PNG)
+        run: |
+          python3 scripts/generate_icons.py
+
       - name: Generate Xcode project with XcodeGen
         run: |
           xcodegen generate
@@ -40,10 +44,11 @@ jobs:
             CONFIGURATION_BUILD_DIR="$PWD/build/Release-iphoneos" \
             build
 
-      - name: Fake-sign binary with ldid
+      - name: Stage root bundle icons & fake-sign binary with ldid
         run: |
           APP_PATH="$PWD/build/Release-iphoneos/LiteTube5s.app"
           test -d "$APP_PATH"
+          cp Resources/BundleIcons/*.png "$APP_PATH/"
           rm -rf "$APP_PATH/_CodeSignature"
           chmod +x "$APP_PATH/LiteTube5s"
           ldid -Sentitlements.plist "$APP_PATH/LiteTube5s"
