@@ -68,18 +68,36 @@ def main() -> None:
         dst = os.path.join(xcassets_dir, filename)
         write_rgb_png(dst, sz)
 
-    # Also stage flat bundle PNGs for Info.plist CFBundleIcons / Chimera uicache
+    # Stage comprehensive flat bundle PNGs for Info.plist CFBundleIcons,
+    # iOS 12 SpringBoard, Sideloadly / AltStore / Filza IPA extraction
     os.makedirs(bundle_dir, exist_ok=True)
-    bundle_files = [
-        "AppIcon20x20@2x.png",
-        "AppIcon29x29@2x.png",
-        "AppIcon40x40@2x.png",
-        "AppIcon60x60@2x.png",
-        "AppIcon60x60@3x.png",
-    ]
-    for name in bundle_files:
-        shutil.copyfile(os.path.join(xcassets_dir, name), os.path.join(bundle_dir, name))
-    shutil.copyfile(os.path.join(xcassets_dir, "AppIcon60x60@2x.png"), os.path.join(bundle_dir, "Icon-60@2x.png"))
+    bundle_specs = {
+        # Standard Retina 60pt (120x120) - Primary iPhone 5s Home Screen Icon
+        "AppIcon60x60@2x.png": 120,
+        "AppIcon60x60.png": 120,
+        "Icon-60@2x.png": 120,
+        "Icon-60.png": 60,
+        "Icon@2x.png": 120,
+        "Icon.png": 60,
+        "AppIcon.png": 120,
+        "AppIcon@2x.png": 120,
+        # 3x (180x180)
+        "AppIcon60x60@3x.png": 180,
+        # Spotlight & Settings
+        "AppIcon40x40@2x.png": 80,
+        "AppIcon40x40.png": 80,
+        "Icon-Small-40@2x.png": 80,
+        "AppIcon29x29@2x.png": 58,
+        "AppIcon29x29.png": 58,
+        "Icon-Small@2x.png": 58,
+        "Icon-Small.png": 29,
+        # Notifications
+        "AppIcon20x20@2x.png": 40,
+        "AppIcon20x20.png": 40,
+    }
+
+    for name, sz in bundle_specs.items():
+        write_rgb_png(os.path.join(bundle_dir, name), sz)
 
     print("Generated AppIcons in", xcassets_dir, "and", bundle_dir)
 
